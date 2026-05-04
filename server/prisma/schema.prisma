@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  COACH
+  MEMBER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+  FAILED
+}
+
+enum CourseStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  LATE
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  role         Role
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  member Member?
+  coach  Coach?
+}
+
+model Member {
+  id            Int      @id @default(autoincrement())
+  userId        Int?     @unique
+  firstName     String
+  lastName      String
+  email         String   @unique
+  phone         String?
+  gender        String?
+  birthDate     DateTime?
+  objective     String
+  level         String
+  weightKg      Float?
+  heightCm      Int?
+  progressScore Float    @default(0)
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user            User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  subscriptions   Subscription[]
+  payments        Payment[]
+  enrollments     Enrollment[]
+  attendance      Attendance[]
+  recommendations Recommendation[]
+}
+
+model Coach {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     @unique
+  firstName String
+  lastName  String
+  email     String   @unique
+  phone     String?
+  specialty String
+  bio       String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  courses Course[]
+}
+
+model SubscriptionPlan {
+  id           Int      @id @default(autoincrement())
+  name         String
+  durationDays Int
+  price        Float
+  benefits     String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id        Int                @id @default(autoincrement())
+  memberId  Int
+  planId    Int
+  startDate DateTime
+  endDate   DateTime
+  status    SubscriptionStatus @default(ACTIVE)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  member   Member           @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  plan     SubscriptionPlan @relation(fields: [planId], references: [id])
+  payments Payment[]
+}
+
+model Course {
+  id          Int          @id @default(autoincrement())
+  title       String
+  activity    String
+  description String?     @db.Text
+  startsAt    DateTime
+  endsAt      DateTime
+  capacity    Int
+  room        String?
+  status      CourseStatus @default(SCHEDULED)
+  coachId     Int
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  coach       Coach        @relation(fields: [coachId], references: [id])
+  enrollments Enrollment[]
+  attendance  Attendance[]
+}
+
+model Enrollment {
+  id       Int      @id @default(autoincrement())
+  memberId Int
+  courseId Int
+  createdAt DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, courseId])
+}
+
+model Attendance {
+  id        Int              @id @default(autoincrement())
+  memberId  Int
+  courseId  Int?
+  checkInAt DateTime         @default(now())
+  status    AttendanceStatus @default(PRESENT)
+  notes     String?          @db.Text
+  createdAt DateTime         @default(now())
+
+  member Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  course Course? @relation(fields: [courseId], references: [id], onDelete: SetNull)
+}
+
+model Payment {
+  id             Int           @id @default(autoincrement())
+  memberId       Int
+  subscriptionId Int?
+  amount         Float
+  method         String
+  status         PaymentStatus @default(PAID)
+  paidAt         DateTime      @default(now())
+  reference      String?
+  createdAt      DateTime      @default(now())
+
+  member       Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  subscription Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+}
+
+model Recommendation {
+  id              Int      @id @default(autoincrement())
+  memberId        Int
+  goal            String
+  summary         String   @db.Text
+  weeklyFrequency Int
+  intensity       String
+  plan            String   @db.Text
+  generatedAt     DateTime @default(now())
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+}

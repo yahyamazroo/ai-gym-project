@@ -1,0 +1,23 @@
+{
+  "name": "gym-ai-pfa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Application web de gestion de salle de sport avec recommandations d'entrainement par IA.",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n API,WEB -c cyan,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "start": "npm run start -w server",
+    "seed": "npm run seed -w server",
+    "db:create": "npm run db:create -w server",
+    "db:push": "npm run db:push -w server",
+    "db:reset": "npm run db:reset -w server",
+    "db:studio": "npm run db:studio -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
