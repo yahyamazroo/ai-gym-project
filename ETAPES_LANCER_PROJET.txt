@@ -1,0 +1,198 @@
+ETAPES POUR LANCER LE PROJET GETFIT GYM
+=======================================
+
+1. Ouvrir le dossier du projet
+------------------------------
+Ouvre VS Code dans ce dossier :
+
+c:\Users\PC\Desktop\pfa.2025.2026
+
+Puis ouvre un terminal dans VS Code :
+Terminal > New Terminal
+
+
+2. Verifier MySQL
+-----------------
+Avant de lancer le projet, MySQL doit etre demarre.
+
+Dans MySQL Workbench, garde cette base de donnees :
+
+getfit_gym
+
+Ne supprime pas :
+- getfit_gym
+- phpmyadmin
+
+Si la base getfit_gym n'existe pas, execute cette requete dans MySQL Workbench :
+
+CREATE DATABASE IF NOT EXISTS getfit_gym
+CHARACTER SET utf8mb4
+COLLATE utf8mb4_unicode_ci;
+
+
+3. Verifier le fichier server/.env
+----------------------------------
+Dans le dossier server, il doit y avoir un fichier :
+
+server/.env
+
+Son contenu doit ressembler a ceci :
+
+DATABASE_URL="mysql://root:@localhost:3306/getfit_gym"
+JWT_SECRET="getfit-local-secret"
+JWT_EXPIRES_IN="8h"
+PORT=4000
+CLIENT_URL="http://localhost:5173"
+
+Important :
+- Si ton MySQL root a un mot de passe, ajoute-le dans DATABASE_URL.
+- Exemple avec mot de passe 1234 :
+
+DATABASE_URL="mysql://root:1234@localhost:3306/getfit_gym"
+
+
+4. Installer les dependances
+----------------------------
+Dans le terminal, depuis la racine du projet, lance :
+
+npm install
+
+La racine du projet est :
+
+c:\Users\PC\Desktop\pfa.2025.2026
+
+
+5. Creer les tables dans MySQL
+------------------------------
+Toujours depuis la racine du projet, lance :
+
+npm run db:push
+
+Cette commande cree les tables Prisma dans la base getfit_gym.
+
+
+6. Ajouter les donnees de test
+------------------------------
+Lance cette commande :
+
+npm run seed
+
+Elle ajoute :
+- un administrateur
+- un coach
+- un membre
+- des abonnements
+- des cours
+- des paiements
+- des recommandations
+
+Attention :
+Cette commande remet les donnees de test. Elle peut supprimer les anciennes donnees de l'application.
+
+
+7. Lancer le projet
+-------------------
+Pour lancer le backend et le frontend ensemble, utilise :
+
+npm run dev
+
+Ensuite ouvre le navigateur sur :
+
+http://localhost:5173
+
+L'API backend tourne sur :
+
+http://localhost:4000/api
+
+
+8. Comptes de connexion
+-----------------------
+Administrateur :
+Email : admin@gym-ai.local
+Mot de passe : Admin123!
+
+Coach :
+Email : coach@gym-ai.local
+Mot de passe : Coach123!
+
+Membre :
+Email : member@gym-ai.local
+Mot de passe : Member123!
+
+
+9. Tester si l'API marche
+-------------------------
+Dans le navigateur, ouvre :
+
+http://localhost:4000/api/health
+
+Si tout va bien, l'API repond.
+
+
+10. Si le projet ne marche pas
+------------------------------
+Cas 1 : Erreur de connexion MySQL
+- Verifie que MySQL est demarre.
+- Verifie que la base getfit_gym existe.
+- Verifie DATABASE_URL dans server/.env.
+
+Cas 2 : Le port 5173 est deja utilise
+- Ferme l'ancien terminal qui lance Vite.
+- Relance :
+
+npm run dev
+
+Cas 3 : Le port 4000 est deja utilise
+- Ferme l'ancien serveur backend.
+- Relance :
+
+npm run dev
+
+Cas 4 : Tables manquantes
+- Lance :
+
+npm run db:push
+
+Puis :
+
+npm run seed
+
+
+11. Commandes utiles
+--------------------
+Installer :
+npm install
+
+Lancer le projet :
+npm run dev
+
+Construire le frontend :
+npm run build
+
+Creer ou mettre a jour les tables :
+npm run db:push
+
+Ajouter les donnees de test :
+npm run seed
+
+Ouvrir Prisma Studio :
+npm run db:studio
+
+
+12. Resume rapide
+-----------------
+Pour lancer le projet normalement :
+
+1. Demarrer MySQL
+2. Ouvrir le projet dans VS Code
+3. Verifier server/.env
+4. Lancer :
+
+npm install
+npm run db:push
+npm run seed
+npm run dev
+
+5. Ouvrir :
+
+http://localhost:5173

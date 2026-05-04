@@ -4,13 +4,20 @@ import {
   ArrowUpRight,
   BadgeCheck,
   Banknote,
+  BarChart3,
+  Bell,
   BrainCircuit,
   CalendarDays,
+  CalendarCheck,
+  CheckCircle2,
   ClipboardCheck,
   CreditCard,
+  Crown,
+  Dumbbell,
   Edit3,
   Flame,
   Gauge,
+  HeartPulse,
   KeyRound,
   LayoutDashboard,
   LoaderCircle,
@@ -18,15 +25,21 @@ import {
   LogOut,
   Landmark,
   Mail,
+  Medal,
+  MessageCircle,
   Moon,
+  PlayCircle,
   Plus,
   RefreshCw,
   Receipt,
   Save,
+  Send,
   ShieldCheck,
   Sparkles,
+  Star,
   Sun,
   Target,
+  Timer,
   TrendingUp,
   TriangleAlert,
   Trophy,
@@ -54,29 +67,24 @@ const roleLabels = {
 
 const navByRole = {
   ADMIN: [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "dashboard", label: "Statistiques", icon: LayoutDashboard },
     { id: "members", label: "Membres", icon: Users },
     { id: "subscriptions", label: "Abonnements", icon: BadgeCheck },
-    { id: "courses", label: "Cours", icon: CalendarDays },
-    { id: "attendance", label: "Presences", icon: ClipboardCheck },
     { id: "payments", label: "Paiements", icon: CreditCard },
-    { id: "recommendations", label: "IA training", icon: BrainCircuit },
-    { id: "coaches", label: "Coachs", icon: UserRoundCog },
-    { id: "plans", label: "Offres", icon: WalletCards }
+    { id: "coaches", label: "Coachs", icon: UserRoundCog }
   ],
   COACH: [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "dashboard", label: "Suivi coach", icon: LayoutDashboard },
     { id: "coachPortal", label: "Planning", icon: UserRoundCog },
-    { id: "members", label: "Membres", icon: Users },
     { id: "courses", label: "Cours", icon: CalendarDays },
-    { id: "attendance", label: "Presences", icon: ClipboardCheck },
-    { id: "recommendations", label: "IA training", icon: BrainCircuit }
+    { id: "members", label: "Membres", icon: Users },
+    { id: "attendance", label: "Presences", icon: ClipboardCheck }
   ],
   MEMBER: [
     { id: "dashboard", label: "Mon espace", icon: UserRound },
-    { id: "courses", label: "Cours", icon: CalendarDays },
-    { id: "payments", label: "Paiements", icon: CreditCard },
-    { id: "recommendations", label: "Programme IA", icon: BrainCircuit }
+    { id: "subscription", label: "Abonnement", icon: CreditCard },
+    { id: "calendar", label: "Cours collectifs", icon: CalendarDays },
+    { id: "recommendations", label: "Programme", icon: BrainCircuit }
   ]
 };
 
@@ -133,6 +141,187 @@ const parsePlan = (plan) => {
   } catch {
     return {};
   }
+};
+
+const formatTime = (value) => {
+  if (!value) return "--:--";
+  return new Intl.DateTimeFormat("fr-FR", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+};
+
+const formatShortDay = (value) =>
+  new Intl.DateTimeFormat("fr-FR", { weekday: "short", day: "2-digit" }).format(new Date(value));
+
+const dateKey = (value) => toDateInput(value);
+
+const getNextDays = (count = 7) =>
+  Array.from({ length: count }, (_, index) => {
+    const day = new Date();
+    day.setDate(day.getDate() + index);
+    day.setHours(0, 0, 0, 0);
+    return day;
+  });
+
+const daysUntil = (value) => {
+  if (!value) return 0;
+  const diff = new Date(value).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / 86400000));
+};
+
+const useStoredState = (key, initialValue) => {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored ? JSON.parse(stored) : initialValue;
+    } catch {
+      return initialValue;
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem(key, JSON.stringify(value));
+  }, [key, value]);
+
+  return [value, setValue];
+};
+
+const getMemberProfile = (data) => data.portal || data.dashboard?.member || null;
+
+const getMemberCourses = (member, data, user) => {
+  const fromEnrollments = (member?.enrollments || []).map((enrollment) => enrollment.course).filter(Boolean);
+  const memberId = user?.memberId || member?.id;
+  const fromCourses = (data.courses || []).filter((course) =>
+    course.enrollments?.some((enrollment) => enrollment.memberId === memberId)
+  );
+  return [...fromEnrollments, ...fromCourses].filter(
+    (course, index, courses) => course?.id && courses.findIndex((item) => item.id === course.id) === index
+  );
+};
+
+const getMemberStats = (member, data, user) => {
+  const subscription = member?.subscriptions?.[0];
+  const bookedCourses = getMemberCourses(member, data, user);
+  const attendanceCount = member?.attendance?.length || 0;
+  const nextCourse = [...bookedCourses].sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0];
+
+  return {
+    subscription,
+    bookedCourses,
+    attendanceCount,
+    nextCourse,
+    activeDays: daysUntil(subscription?.endDate),
+    progress: Number(member?.progressScore || 0)
+  };
+};
+
+const getMemberBadges = (member, stats) => [
+  {
+    title: "Starter",
+    text: "Profil active",
+    icon: Star,
+    unlocked: Boolean(member),
+    accent: "sunset"
+  },
+  {
+    title: "Assidu",
+    text: "5 presences validees",
+    icon: CheckCircle2,
+    unlocked: stats.attendanceCount >= 5,
+    accent: "mint"
+  },
+  {
+    title: "Objectif 75",
+    text: "Progression superieure a 75%",
+    icon: Target,
+    unlocked: stats.progress >= 75,
+    accent: "violet"
+  },
+  {
+    title: "Club Elite",
+    text: "Abonnement actif",
+    icon: Crown,
+    unlocked: stats.subscription?.status === "ACTIVE",
+    accent: "gold"
+  }
+];
+
+const buildLeaderboard = (member) => {
+  const currentScore = Number(member?.progressScore || 0);
+  return [
+    { name: "Sara Benali", score: 96, streak: 18 },
+    { name: fullName(member), score: currentScore || 74, streak: Math.max(3, member?.attendance?.length || 0), current: true },
+    { name: "Yassine Amrani", score: 82, streak: 11 },
+    { name: "Nadia Fit", score: 78, streak: 9 },
+    { name: "Omar Coach", score: 69, streak: 7 }
+  ].sort((a, b) => b.score - a.score);
+};
+
+const defaultVideos = [
+  {
+    title: "HIIT full body",
+    level: "Intermediaire",
+    minutes: 18,
+    accent: "sunset",
+    url: "https://www.youtube.com/results?search_query=hiit+full+body+workout"
+  },
+  {
+    title: "Mobilite et stretching",
+    level: "Debutant",
+    minutes: 12,
+    accent: "mint",
+    url: "https://www.youtube.com/results?search_query=mobility+stretching+routine"
+  },
+  {
+    title: "Force haut du corps",
+    level: "Avance",
+    minutes: 24,
+    accent: "violet",
+    url: "https://www.youtube.com/results?search_query=upper+body+strength+workout"
+  },
+  {
+    title: "Core training",
+    level: "Tous niveaux",
+    minutes: 15,
+    accent: "gold",
+    url: "https://www.youtube.com/results?search_query=core+training+fitness"
+  }
+];
+
+const getCoachProfile = (data) => data.portal || null;
+
+const getCoachCourses = (data) => getCoachProfile(data)?.courses || [];
+
+const getCoachMembers = (data) => {
+  const fromCourses = getCoachCourses(data)
+    .flatMap((course) => course.enrollments || [])
+    .map((enrollment) => enrollment.member)
+    .filter(Boolean);
+  const allMembers = data.members || [];
+  const combined = [...fromCourses, ...allMembers];
+  return combined.filter((member, index, members) => member?.id && members.findIndex((item) => item.id === member.id) === index);
+};
+
+const getCoachStats = (data) => {
+  const courses = getCoachCourses(data);
+  const members = getCoachMembers(data);
+  const today = dateKey(new Date());
+  const todayCourses = courses.filter((course) => dateKey(course.startsAt) === today);
+  const attendanceCount = courses.reduce((total, course) => total + (course.attendance?.length || 0), 0);
+  const nextCourse = [...courses]
+    .filter((course) => new Date(course.startsAt).getTime() >= Date.now() - 3600000)
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))[0];
+
+  return {
+    courses,
+    members,
+    todayCourses,
+    attendanceCount,
+    nextCourse,
+    fillRate: Math.round(
+      courses.reduce((total, course) => total + ((course.enrollments?.length || 0) / Math.max(Number(course.capacity || 1), 1)), 0) /
+        Math.max(courses.length, 1) *
+        100
+    )
+  };
 };
 
 function App() {
@@ -258,6 +447,13 @@ function App() {
 
   const activeNav = useMemo(() => navByRole[auth?.user?.role] || [], [auth?.user?.role]);
 
+  useEffect(() => {
+    if (!auth || !activeNav.length) return;
+    if (!activeNav.some((item) => item.id === view)) {
+      setView(activeNav[0].id);
+    }
+  }, [activeNav, auth, view]);
+
   if (!auth) {
     return (
       <LoginScreen
@@ -363,6 +559,12 @@ function App() {
           {view === "courses" && (
             <CoursesPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
           )}
+          {view === "calendar" && (
+            <MemberCalendarPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
+          )}
+          {view === "progress" && (
+            <MemberProgressPage member={getMemberProfile(data)} user={auth.user} data={data} />
+          )}
           {view === "attendance" && (
             <AttendancePage data={data} mutate={mutate} request={request} working={working} />
           )}
@@ -372,6 +574,14 @@ function App() {
           {view === "recommendations" && (
             <RecommendationsPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
           )}
+          {view === "community" && <MemberCommunityPage member={getMemberProfile(data)} data={data} user={auth.user} />}
+          {view === "chat" && <MemberChatPage member={getMemberProfile(data)} user={auth.user} />}
+          {view === "subscription" && <MemberSubscriptionPage member={getMemberProfile(data)} data={data} user={auth.user} />}
+          {view === "notifications" && <MemberNotificationsPage member={getMemberProfile(data)} data={data} user={auth.user} />}
+          {view === "videos" && <MemberVideosPage recommendations={data.recommendations} />}
+          {view === "coachMessages" && <CoachMessagesPage data={data} user={auth.user} />}
+          {view === "coachNotifications" && <CoachNotificationsPage data={data} user={auth.user} />}
+          {view === "coachVideos" && <CoachVideosPage data={data} />}
           {view === "coachPortal" && <CoachPortalPage data={data} />}
         </section>
       </main>
@@ -527,8 +737,12 @@ function Alert({ tone, message }) {
 
 function Dashboard({ data, user, onNavigate, onGenerate }) {
   if (user.role === "MEMBER") {
-    const member = data.portal || data.dashboard?.member;
-    return <MemberHome member={member} onGenerate={onGenerate} />;
+    const member = getMemberProfile(data);
+    return <MemberHomeV2 member={member} data={data} user={user} onGenerate={onGenerate} />;
+  }
+
+  if (user.role === "COACH") {
+    return <CoachHomeV2 data={data} user={user} onNavigate={onNavigate} />;
   }
 
   const counts = data.dashboard?.counts || {};
@@ -547,9 +761,9 @@ function Dashboard({ data, user, onNavigate, onGenerate }) {
   }).format(new Date());
   const welcomeRole = user.role === "ADMIN" ? "Admin" : roleLabels[user.role] || "Admin";
   const quickActions = [
-    { label: "Add Member", icon: UserPlus, view: "members" },
-    { label: "New Payment", icon: Receipt, view: "payments" },
-    { label: "Create Course", icon: CalendarDays, view: "courses" }
+    { label: "Ajouter membre", icon: UserPlus, view: "members" },
+    { label: "Nouveau paiement", icon: Receipt, view: "payments" },
+    { label: "Gerer coachs", icon: UserRoundCog, view: "coaches" }
   ];
 
   return (
@@ -750,6 +964,565 @@ function MemberHome({ member, onGenerate }) {
           )}
         />
       </Panel>
+    </div>
+  );
+}
+
+function MemberHomeV2({ member, data, user, onGenerate }) {
+  const stats = getMemberStats(member, data, user);
+  const subscription = stats.subscription;
+  const recommendation = member?.recommendations?.[0] || data.recommendations?.[0];
+  const badges = getMemberBadges(member, stats);
+  const leaderboard = buildLeaderboard(member);
+  const currentRank = leaderboard.findIndex((item) => item.current) + 1;
+  const upcomingCourses = stats.bookedCourses
+    .filter((course) => new Date(course.startsAt).getTime() >= Date.now() - 3600000)
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
+    .slice(0, 3);
+
+  if (!member) {
+    return <EmptyState icon={UserRound} title="Profil indisponible" text="Connectez un compte membre a un profil." />;
+  }
+
+  return (
+    <div className="member-app">
+      <section className="mobile-hero">
+        <div>
+          <p className="eyebrow">Portail membre</p>
+          <h2>{fullName(member)}</h2>
+          <span>{member.objective} - Niveau {member.level}</span>
+          <p>
+            {stats.nextCourse
+              ? `Prochain cours: ${stats.nextCourse.title} a ${formatTime(stats.nextCourse.startsAt)}`
+              : "Planifie ta prochaine seance depuis le calendrier."}
+          </p>
+        </div>
+        <ProgressRing value={stats.progress} label="Progression" />
+      </section>
+
+      <div className="member-stat-grid">
+        <MemberDashboardStat icon={BadgeCheck} label="Abonnement" value={subscription?.status || "N/A"} caption={`${stats.activeDays} jours restants`} accent="mint" />
+        <MemberDashboardStat icon={CalendarCheck} label="Reservations" value={stats.bookedCourses.length} caption="Cours reserves" accent="blue" />
+        <MemberDashboardStat icon={Flame} label="Presences" value={stats.attendanceCount} caption="Historique sportif" accent="sunset" />
+        <MemberDashboardStat icon={Trophy} label="Classement" value={`#${currentRank || "-"}`} caption="Leaderboard club" accent="violet" />
+      </div>
+
+      <div className="mobile-section-grid">
+        <article className="mobile-panel wide">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Programme IA</p>
+              <h3>{recommendation?.goal || "Plan personnalise"}</h3>
+            </div>
+            <button className="icon-button" type="button" onClick={() => onGenerate(member.id)} title="Generer mon programme">
+              <BrainCircuit size={18} />
+            </button>
+          </div>
+          <p>{recommendation?.summary || "Genere un programme adapte a ton niveau, ton objectif et ton historique."}</p>
+          <div className="training-focus-row">
+            <span><Dumbbell size={15} /> {recommendation?.weeklyFrequency || 3} seances</span>
+            <span><Timer size={15} /> 45 min</span>
+            <span><Target size={15} /> {member.objective}</span>
+          </div>
+        </article>
+
+        <article className="mobile-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Badges</p>
+              <h3>{badges.filter((badge) => badge.unlocked).length}/{badges.length} debloques</h3>
+            </div>
+            <Medal size={22} />
+          </div>
+          <div className="badge-row">
+            {badges.map((badge) => {
+              const Icon = badge.icon;
+              return (
+                <span className={badge.unlocked ? `mini-badge ${badge.accent}` : "mini-badge locked"} key={badge.title} title={badge.text}>
+                  <Icon size={16} />
+                </span>
+              );
+            })}
+          </div>
+        </article>
+      </div>
+
+      <div className="mobile-two-col">
+        <article className="mobile-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Performance</p>
+              <h3>Suivi rapide</h3>
+            </div>
+            <BarChart3 size={22} />
+          </div>
+          <MiniBars values={[42, 64, 55, 78, stats.progress || 68]} />
+          <div className="training-focus-row">
+            <span><HeartPulse size={15} /> {member.weightKg || "--"} kg</span>
+            <span><Gauge size={15} /> {stats.progress}%</span>
+          </div>
+        </article>
+
+        <article className="mobile-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Prochains cours</p>
+              <h3>Reservations</h3>
+            </div>
+            <CalendarDays size={22} />
+          </div>
+          <div className="compact-course-list">
+            {upcomingCourses.length ? (
+              upcomingCourses.map((course) => (
+                <div key={course.id}>
+                  <strong>{course.title}</strong>
+                  <span>{formatDateTime(course.startsAt)} - {fullName(course.coach)}</span>
+                </div>
+              ))
+            ) : (
+              <span>Aucun cours reserve.</span>
+            )}
+          </div>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function MemberDashboardStat({ icon: Icon, label, value, caption, accent }) {
+  return (
+    <article className={`member-stat-card ${accent}`}>
+      <div>
+        <Icon size={20} />
+      </div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{caption}</small>
+    </article>
+  );
+}
+
+function ProgressRing({ value, label }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+  return (
+    <div className="progress-ring" style={{ "--value": `${safeValue * 3.6}deg` }}>
+      <strong>{safeValue}%</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function MiniBars({ values }) {
+  const max = Math.max(...values, 1);
+  return (
+    <div className="mini-bars">
+      {values.map((value, index) => (
+        <span key={`${value}-${index}`} style={{ "--height": `${Math.max(16, (value / max) * 100)}%` }} />
+      ))}
+    </div>
+  );
+}
+
+function MemberCalendarPage({ data, user, mutate, request, working }) {
+  const [selectedDay, setSelectedDay] = useState(dateKey(new Date()));
+  const days = getNextDays(7);
+  const courses = data.courses || [];
+  const selectedCourses = courses
+    .filter((course) => dateKey(course.startsAt) === selectedDay)
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
+  const visibleCourses = selectedCourses.length ? selectedCourses : courses.slice(0, 6);
+
+  const toggleEnrollment = (course, enrolled) => {
+    const memberId = user.memberId;
+    if (!memberId && enrolled) return;
+    mutate(
+      () =>
+        enrolled
+          ? request(`/courses/${course.id}/enrollments/${memberId}`, { method: "DELETE" })
+          : request(`/courses/${course.id}/enroll`, { method: "POST" }),
+      enrolled ? "Reservation annulee." : "Cours reserve."
+    );
+  };
+
+  return (
+    <div className="member-app">
+      <section className="mobile-panel">
+        <div className="mobile-panel-head">
+          <div>
+            <p className="eyebrow">Calendrier interactif</p>
+            <h3>Reserver un cours</h3>
+          </div>
+          <CalendarDays size={22} />
+        </div>
+        <div className="calendar-strip">
+          {days.map((day) => {
+            const key = dateKey(day);
+            const count = courses.filter((course) => dateKey(course.startsAt) === key).length;
+            return (
+              <button className={selectedDay === key ? "calendar-day active" : "calendar-day"} type="button" key={key} onClick={() => setSelectedDay(key)}>
+                <span>{formatShortDay(day)}</span>
+                <strong>{count}</strong>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="course-grid mobile-course-grid">
+        {visibleCourses.map((course) => {
+          const enrolled = course.enrollments?.some((item) => item.memberId === user.memberId);
+          return (
+            <article className="mobile-course-card" key={course.id}>
+              <div className="mobile-course-time">
+                <strong>{formatTime(course.startsAt)}</strong>
+                <span>{course.room || "Studio"}</span>
+              </div>
+              <div>
+                <p className="eyebrow">{course.activity}</p>
+                <h3>{course.title}</h3>
+                <p>{course.description || "Session guidee par un coach GETFIT."}</p>
+                <div className="training-focus-row">
+                  <span><Users size={15} /> {course.enrollments?.length || 0}/{course.capacity}</span>
+                  <span><UserRoundCog size={15} /> {fullName(course.coach)}</span>
+                </div>
+              </div>
+              <button className={enrolled ? "secondary-button" : "primary-button"} type="button" disabled={working} onClick={() => toggleEnrollment(course, enrolled)}>
+                {enrolled ? <X size={16} /> : <Plus size={16} />}
+                {enrolled ? "Annuler" : "Reserver"}
+              </button>
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function MemberProgressPage({ member, user, data }) {
+  const initialWeight = Number(member?.weightKg || 76);
+  const [history, setHistory] = useStoredState(`gym-progress-${user.id || user.memberId || "member"}`, [
+    { date: dateKey(new Date(Date.now() - 21 * 86400000)), weight: initialWeight + 2, objective: member?.objective || "Condition physique" },
+    { date: dateKey(new Date(Date.now() - 14 * 86400000)), weight: initialWeight + 1, objective: member?.objective || "Condition physique" },
+    { date: dateKey(new Date(Date.now() - 7 * 86400000)), weight: initialWeight, objective: member?.objective || "Condition physique" }
+  ]);
+  const [form, setForm] = useState({ weight: "", objective: member?.objective || "Condition physique" });
+
+  if (!member) return <EmptyState icon={TrendingUp} title="Profil indisponible" />;
+
+  const latest = history[history.length - 1] || {};
+  const heightM = Number(member.heightCm || 170) / 100;
+  const bmi = latest.weight && heightM ? latest.weight / (heightM * heightM) : 0;
+  const stats = getMemberStats(member, data, user);
+
+  const submit = (event) => {
+    event.preventDefault();
+    if (!form.weight) return;
+    setHistory([...history, { date: dateKey(new Date()), weight: Number(form.weight), objective: form.objective }]);
+    setForm({ weight: "", objective: form.objective });
+  };
+
+  return (
+    <div className="member-app">
+      <div className="member-stat-grid">
+        <MemberDashboardStat icon={HeartPulse} label="Poids actuel" value={`${latest.weight || member.weightKg || "--"} kg`} caption="Derniere mesure" accent="sunset" />
+        <MemberDashboardStat icon={Target} label="Objectif" value={latest.objective || member.objective} caption="Plan actif" accent="mint" />
+        <MemberDashboardStat icon={Gauge} label="IMC" value={bmi ? bmi.toFixed(1) : "--"} caption={`${member.heightCm || "--"} cm`} accent="blue" />
+        <MemberDashboardStat icon={Activity} label="Score" value={`${stats.progress}%`} caption="Progression globale" accent="violet" />
+      </div>
+
+      <div className="mobile-two-col">
+        <article className="mobile-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Historique</p>
+              <h3>Evolution du poids</h3>
+            </div>
+            <TrendingUp size={22} />
+          </div>
+          <PerformanceHistoryChart history={history} />
+        </article>
+
+        <article className="mobile-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Nouvelle mesure</p>
+              <h3>Suivi performances</h3>
+            </div>
+            <Save size={22} />
+          </div>
+          <form className="form-grid" onSubmit={submit}>
+            <TextField label="Poids kg" type="number" value={form.weight} onChange={(value) => setForm({ ...form, weight: value })} required />
+            <SelectField label="Objectif" value={form.objective} onChange={(value) => setForm({ ...form, objective: value })} options={objectives} />
+            <div className="form-actions full-span">
+              <button className="primary-button" type="submit">
+                <Plus size={16} />
+                Ajouter mesure
+              </button>
+            </div>
+          </form>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function PerformanceHistoryChart({ history }) {
+  const values = history.map((item) => Number(item.weight || 0));
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+
+  return (
+    <div className="performance-chart">
+      {history.map((item) => {
+        const height = max === min ? 50 : ((Number(item.weight) - min) / (max - min)) * 70 + 20;
+        return (
+          <div key={`${item.date}-${item.weight}`}>
+            <span style={{ "--height": `${height}%` }} />
+            <strong>{item.weight}</strong>
+            <small>{formatDate(item.date)}</small>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MemberCommunityPage({ member, data, user }) {
+  const stats = getMemberStats(member, data, user);
+  const badges = getMemberBadges(member, stats);
+  const leaderboard = buildLeaderboard(member);
+
+  return (
+    <div className="member-app">
+      <div className="badge-grid">
+        {badges.map((badge) => {
+          const Icon = badge.icon;
+          return (
+            <article className={badge.unlocked ? `badge-card ${badge.accent}` : "badge-card locked"} key={badge.title}>
+              <div><Icon size={24} /></div>
+              <h3>{badge.title}</h3>
+              <p>{badge.text}</p>
+              <span>{badge.unlocked ? "Debloque" : "A progresser"}</span>
+            </article>
+          );
+        })}
+      </div>
+
+      <article className="mobile-panel">
+        <div className="mobile-panel-head">
+          <div>
+            <p className="eyebrow">Leaderboard</p>
+            <h3>Classement du club</h3>
+          </div>
+          <Trophy size={22} />
+        </div>
+        <div className="leaderboard-list">
+          {leaderboard.map((item, index) => (
+            <div className={item.current ? "leaderboard-row current" : "leaderboard-row"} key={item.name}>
+              <strong>#{index + 1}</strong>
+              <span>{item.name}</span>
+              <small>{item.streak} jours</small>
+              <b>{item.score}%</b>
+            </div>
+          ))}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function MemberChatPage({ member, user }) {
+  const [messages, setMessages] = useStoredState(`gym-chat-${user.id || user.memberId || "member"}`, [
+    { from: "coach", text: "Salut, j'ai ajuste ta prochaine seance selon ton objectif.", at: "09:10" },
+    { from: "member", text: "Parfait, je veux aussi travailler le cardio cette semaine.", at: "09:14" }
+  ]);
+  const [text, setText] = useState("");
+
+  const send = (event) => {
+    event.preventDefault();
+    if (!text.trim()) return;
+    setMessages([...messages, { from: "member", text: text.trim(), at: formatTime(new Date()) }]);
+    setText("");
+  };
+
+  return (
+    <div className="chat-shell">
+      <section className="chat-header">
+        <div className="coach-avatar"><UserRoundCog size={24} /></div>
+        <div>
+          <p className="eyebrow">Chat membre / coach</p>
+          <h3>Coach GETFIT</h3>
+          <span>{member?.objective || "Programme fitness"} - reponse rapide</span>
+        </div>
+      </section>
+
+      <div className="chat-thread">
+        {messages.map((message, index) => (
+          <div className={message.from === "member" ? "chat-message mine" : "chat-message"} key={`${message.at}-${index}`}>
+            <p>{message.text}</p>
+            <span>{message.at}</span>
+          </div>
+        ))}
+      </div>
+
+      <form className="chat-compose" onSubmit={send}>
+        <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Ecrire au coach..." />
+        <button className="primary-button" type="submit">
+          <Send size={16} />
+          Envoyer
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function MemberSubscriptionPage({ member, data, user }) {
+  const subscription = member?.subscriptions?.[0];
+  const payments = data.payments || [];
+  const plans = data.plans || [];
+
+  return (
+    <div className="member-app">
+      <section className="subscription-hero">
+        <div>
+          <p className="eyebrow">Abonnement + paiement</p>
+          <h2>{subscription?.plan?.name || "Aucun abonnement actif"}</h2>
+          <span>{subscription ? `${formatDate(subscription.startDate)} - ${formatDate(subscription.endDate)}` : "Choisis une offre pour continuer"}</span>
+        </div>
+        <ProgressRing value={subscription ? Math.max(8, 100 - daysUntil(subscription.endDate)) : 0} label={`${daysUntil(subscription?.endDate)} jours`} />
+      </section>
+
+      <div className="price-grid">
+        {plans.map((plan) => (
+          <article className="price-card modern-plan-card" key={plan.id}>
+            <p className="eyebrow">{plan.durationDays} jours</p>
+            <h3>{plan.name}</h3>
+            <strong>{formatMoney(plan.price)}</strong>
+            <p>{plan.description || "Acces club, cours collectifs et suivi digital."}</p>
+            <button className="secondary-button" type="button">
+              <CreditCard size={16} />
+              Selectionner
+            </button>
+          </article>
+        ))}
+      </div>
+
+      <Panel title="Historique paiement" icon={Receipt}>
+        <PremiumPaymentsTable payments={payments} fallbackName={user.name} empty="Aucun paiement." />
+      </Panel>
+    </div>
+  );
+}
+
+function MemberNotificationsPage({ member, data, user }) {
+  const [settings, setSettings] = useStoredState(`gym-notifications-${user.id || user.memberId || "member"}`, {
+    courseReminder: true,
+    paymentReminder: true,
+    aiReminder: true
+  });
+  const courses = getMemberCourses(member, data, user).slice(0, 4);
+  const subscription = member?.subscriptions?.[0];
+  const reminders = [
+    ...courses.map((course) => ({
+      title: `Rappel cours: ${course.title}`,
+      text: `${formatDateTime(course.startsAt)} - ${course.room || "Studio"}`,
+      icon: CalendarCheck
+    })),
+    {
+      title: "Abonnement",
+      text: subscription ? `Expire dans ${daysUntil(subscription.endDate)} jours` : "Aucun abonnement actif",
+      icon: CreditCard
+    },
+    {
+      title: "Programme IA",
+      text: "Mise a jour recommandee chaque semaine",
+      icon: BrainCircuit
+    }
+  ];
+
+  const toggle = (key) => setSettings({ ...settings, [key]: !settings[key] });
+
+  return (
+    <div className="member-app">
+      <div className="notification-settings">
+        {[
+          ["courseReminder", "Rappel avant les cours", CalendarDays],
+          ["paymentReminder", "Alerte abonnement", CreditCard],
+          ["aiReminder", "Programme IA hebdo", BrainCircuit]
+        ].map(([key, label, Icon]) => (
+          <button className={settings[key] ? "toggle-row active" : "toggle-row"} type="button" key={key} onClick={() => toggle(key)}>
+            <Icon size={18} />
+            <span>{label}</span>
+            <strong>{settings[key] ? "ON" : "OFF"}</strong>
+          </button>
+        ))}
+      </div>
+
+      <article className="mobile-panel">
+        <div className="mobile-panel-head">
+          <div>
+            <p className="eyebrow">Notifications</p>
+            <h3>Rappels importants</h3>
+          </div>
+          <Bell size={22} />
+        </div>
+        <div className="reminder-list">
+          {reminders.map((reminder) => {
+            const Icon = reminder.icon;
+            return (
+              <div key={reminder.title}>
+                <Icon size={18} />
+                <span>
+                  <strong>{reminder.title}</strong>
+                  <small>{reminder.text}</small>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function MemberVideosPage({ recommendations }) {
+  const aiVideos = recommendations
+    .flatMap((recommendation) => {
+      const plan = parsePlan(recommendation.plan);
+      return plan.youtubeVideos || plan.videos || [];
+    })
+    .map((video) => ({
+      title: video.title || video.query || "Video recommandee",
+      level: video.reason || "Recommande IA",
+      minutes: 12,
+      accent: "blue",
+      url: video.url || "https://www.youtube.com/results?search_query=fitness+workout"
+    }));
+  const videos = [...aiVideos, ...defaultVideos].slice(0, 8);
+
+  return (
+    <div className="member-app">
+      <section className="video-hero">
+        <div>
+          <p className="eyebrow">Videos fitness</p>
+          <h2>Bibliotheque entrainement</h2>
+          <span>HIIT, mobilite, force et core training</span>
+        </div>
+        <PlayCircle size={54} />
+      </section>
+
+      <div className="fitness-video-grid">
+        {videos.map((video) => (
+          <a className={`fitness-video-card ${video.accent}`} href={video.url} key={video.title} rel="noreferrer" target="_blank">
+            <div className="video-thumb">
+              <Youtube size={30} />
+              <span>{video.minutes} min</span>
+            </div>
+            <h3>{video.title}</h3>
+            <p>{video.level}</p>
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1390,21 +2163,198 @@ function RecommendationsPage({ data, user, mutate, request, working }) {
   );
 }
 
+function CoachHomeV2({ data, user, onNavigate }) {
+  const coach = getCoachProfile(data);
+  const stats = getCoachStats(data);
+  const nextCourse = stats.nextCourse;
+  const topMembers = [...stats.members]
+    .sort((a, b) => Number(b.progressScore || 0) - Number(a.progressScore || 0))
+    .slice(0, 4);
+
+  return (
+    <div className="coach-app">
+      <section className="coach-hero">
+        <div>
+          <p className="eyebrow">Espace coach</p>
+          <h2>{coach ? fullName(coach) : user.name}</h2>
+          <span>{coach?.specialty || "Coaching fitness"} - {stats.todayCourses.length} cours aujourd'hui</span>
+          <p>
+            {nextCourse
+              ? `Prochaine session: ${nextCourse.title} a ${formatTime(nextCourse.startsAt)} avec ${nextCourse.enrollments?.length || 0} eleves.`
+              : "Ton planning est pret pour accueillir les prochains cours."}
+          </p>
+        </div>
+        <div className="coach-hero-actions">
+          <button className="primary-button" type="button" onClick={() => onNavigate("coachPortal")}>
+            <CalendarDays size={16} />
+            Voir planning
+          </button>
+          <button className="secondary-button" type="button" onClick={() => onNavigate("courses")}>
+            <Dumbbell size={16} />
+            Organiser seance
+          </button>
+        </div>
+      </section>
+
+      <div className="member-stat-grid">
+        <MemberDashboardStat icon={CalendarCheck} label="Cours planifies" value={stats.courses.length} caption={`${stats.todayCourses.length} aujourd'hui`} accent="blue" />
+        <MemberDashboardStat icon={Users} label="Eleves suivis" value={stats.members.length} caption="Profils actifs" accent="mint" />
+        <MemberDashboardStat icon={ClipboardCheck} label="Presences" value={stats.attendanceCount} caption="Total valide" accent="sunset" />
+        <MemberDashboardStat icon={Gauge} label="Remplissage" value={`${stats.fillRate}%`} caption="Moyenne cours" accent="violet" />
+      </div>
+
+      <div className="coach-command-grid">
+        <article className="coach-panel wide">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Planning live</p>
+              <h3>{nextCourse?.title || "Aucun cours proche"}</h3>
+            </div>
+            <Timer size={22} />
+          </div>
+          {nextCourse ? (
+            <>
+              <div className="coach-session-card">
+                <strong>{formatDateTime(nextCourse.startsAt)}</strong>
+                <span>{nextCourse.room || "Salle principale"} - {nextCourse.enrollments?.length || 0}/{nextCourse.capacity} eleves</span>
+                <ProgressLine value={Math.round(((nextCourse.enrollments?.length || 0) / Math.max(nextCourse.capacity || 1, 1)) * 100)} />
+              </div>
+              <div className="training-focus-row">
+                <span><Dumbbell size={15} /> {nextCourse.activity}</span>
+                <span><ClipboardCheck size={15} /> {nextCourse.attendance?.length || 0} presences</span>
+                <span><Users size={15} /> {nextCourse.enrollments?.length || 0} inscrits</span>
+              </div>
+            </>
+          ) : (
+            <p>Aucun cours imminent pour le moment.</p>
+          )}
+        </article>
+
+        <article className="coach-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Coach tools</p>
+              <h3>Actions rapides</h3>
+            </div>
+            <Sparkles size={22} />
+          </div>
+          <div className="coach-tool-list">
+            {[
+              ["Planning", CalendarDays, "coachPortal"],
+              ["Cours", Dumbbell, "courses"],
+              ["Membres", Users, "members"],
+              ["Presences", ClipboardCheck, "attendance"]
+            ].map(([label, Icon, view]) => (
+              <button type="button" key={view} onClick={() => onNavigate(view)}>
+                <Icon size={17} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </div>
+        </article>
+      </div>
+
+      <div className="mobile-two-col">
+        <article className="coach-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Eleves a suivre</p>
+              <h3>Progression</h3>
+            </div>
+            <TrendingUp size={22} />
+          </div>
+          <div className="coach-member-list">
+            {topMembers.length ? (
+              topMembers.map((member) => (
+                <div key={member.id}>
+                  <span>
+                    <strong>{fullName(member)}</strong>
+                    <small>{member.objective} - {member.level}</small>
+                  </span>
+                  <b>{member.progressScore || 0}%</b>
+                </div>
+              ))
+            ) : (
+              <p>Aucun eleve assigne.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="coach-panel">
+          <div className="mobile-panel-head">
+            <div>
+              <p className="eyebrow">Suivi membres</p>
+              <h3>Objectifs a surveiller</h3>
+            </div>
+            <Target size={22} />
+          </div>
+          <div className="coach-ai-queue">
+            {stats.members.slice(0, 4).map((member) => (
+              <button type="button" key={member.id} onClick={() => onNavigate("members")}>
+                <Target size={16} />
+                <span>{fullName(member)}</span>
+                <small>{member.objective}</small>
+              </button>
+            ))}
+            {!stats.members.length && <p>Aucun membre a suivre.</p>}
+          </div>
+        </article>
+      </div>
+    </div>
+  );
+}
+
+function ProgressLine({ value }) {
+  const safeValue = Math.max(0, Math.min(100, Number(value || 0)));
+  return (
+    <div className="progress-line">
+      <span style={{ width: `${safeValue}%` }} />
+      <strong>{safeValue}%</strong>
+    </div>
+  );
+}
+
 function CoachPortalPage({ data }) {
   const coach = data.portal;
+  const courses = getCoachCourses(data);
+  const [selectedDay, setSelectedDay] = useState(dateKey(new Date()));
+  const days = getNextDays(7);
+  const selectedCourses = courses.filter((course) => dateKey(course.startsAt) === selectedDay);
+
   return (
-    <div className="stack">
-      <div className="profile-band">
+    <div className="coach-app">
+      <section className="coach-hero compact">
         <div>
           <p className="eyebrow">{coach?.specialty || "Planning coach"}</p>
           <h2>{coach ? fullName(coach) : "Coach"}</h2>
-          <span>{coach?.courses?.length || 0} cours planifies</span>
+          <span>{courses.length} cours planifies - calendrier interactif</span>
         </div>
-      </div>
-      <div className="course-grid">
-        {(coach?.courses || []).map((course) => (
-          <article className="course-card" key={course.id}>
-            <div className="course-head">
+      </section>
+
+      <section className="coach-panel">
+        <div className="calendar-strip">
+          {days.map((day) => {
+            const key = dateKey(day);
+            const count = courses.filter((course) => dateKey(course.startsAt) === key).length;
+            return (
+              <button className={selectedDay === key ? "calendar-day active" : "calendar-day"} type="button" key={key} onClick={() => setSelectedDay(key)}>
+                <span>{formatShortDay(day)}</span>
+                <strong>{count}</strong>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <div className="coach-course-list">
+        {(selectedCourses.length ? selectedCourses : courses).map((course) => (
+          <article className="coach-course-card" key={course.id}>
+            <div className="mobile-course-time">
+              <strong>{formatTime(course.startsAt)}</strong>
+              <span>{course.room || "Studio"}</span>
+            </div>
+            <div className="coach-course-main">
+              <div className="course-head">
               <div>
                 <p className="eyebrow">{formatDateTime(course.startsAt)}</p>
                 <h3>{course.title}</h3>
@@ -1416,18 +2366,185 @@ function CoachPortalPage({ data }) {
               <span>{course.enrollments?.length || 0}/{course.capacity} membres</span>
               <span>{course.attendance?.length || 0} presences</span>
             </div>
-            <SimpleList
-              items={course.enrollments || []}
-              empty="Aucun membre inscrit."
-              render={(enrollment) => (
-                <>
-                  <strong>{fullName(enrollment.member)}</strong>
-                  <span>{enrollment.member.objective}</span>
-                </>
-              )}
-            />
+              <div className="coach-roster">
+                {(course.enrollments || []).map((enrollment) => (
+                  <span key={enrollment.id || enrollment.memberId}>
+                    <UserRound size={14} />
+                    {fullName(enrollment.member)}
+                  </span>
+                ))}
+                {!course.enrollments?.length && <small>Aucun membre inscrit.</small>}
+              </div>
+            </div>
           </article>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function CoachMessagesPage({ data, user }) {
+  const members = getCoachMembers(data);
+  const [selectedMemberId, setSelectedMemberId] = useState(members[0]?.id || "");
+  const selectedMember = members.find((member) => member.id === selectedMemberId) || members[0];
+  const [messages, setMessages] = useStoredState(`gym-coach-chat-${user.id || user.coachId || "coach"}`, [
+    { from: "member", memberId: selectedMember?.id || "demo", text: "Coach, je peux remplacer cardio par musculation aujourd'hui ?", at: "10:20" },
+    { from: "coach", memberId: selectedMember?.id || "demo", text: "Oui, garde 10 minutes d'echauffement puis passe au circuit force.", at: "10:24" }
+  ]);
+  const [text, setText] = useState("");
+  const thread = messages.filter((message) => !selectedMember || message.memberId === selectedMember.id);
+
+  const send = (event) => {
+    event.preventDefault();
+    if (!text.trim() || !selectedMember) return;
+    setMessages([...messages, { from: "coach", memberId: selectedMember.id, text: text.trim(), at: formatTime(new Date()) }]);
+    setText("");
+  };
+
+  return (
+    <div className="coach-messaging-layout">
+      <aside className="coach-inbox">
+        <p className="eyebrow">Messages eleves</p>
+        <h3>Inbox coach</h3>
+        <div>
+          {members.map((member) => (
+            <button className={selectedMember?.id === member.id ? "active" : ""} type="button" key={member.id} onClick={() => setSelectedMemberId(member.id)}>
+              <UserRound size={16} />
+              <span>{fullName(member)}</span>
+              <small>{member.objective}</small>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      <section className="chat-shell coach-chat-shell">
+        <div className="chat-header">
+          <div className="coach-avatar"><MessageCircle size={24} /></div>
+          <div>
+            <p className="eyebrow">Conversation</p>
+            <h3>{selectedMember ? fullName(selectedMember) : "Aucun eleve"}</h3>
+            <span>{selectedMember?.objective || "Selectionne un eleve"}</span>
+          </div>
+        </div>
+        <div className="chat-thread">
+          {thread.map((message, index) => (
+            <div className={message.from === "coach" ? "chat-message mine" : "chat-message"} key={`${message.at}-${index}`}>
+              <p>{message.text}</p>
+              <span>{message.at}</span>
+            </div>
+          ))}
+        </div>
+        <form className="chat-compose" onSubmit={send}>
+          <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Repondre a l'eleve..." />
+          <button className="primary-button" type="submit" disabled={!selectedMember}>
+            <Send size={16} />
+            Envoyer
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function CoachNotificationsPage({ data, user }) {
+  const stats = getCoachStats(data);
+  const [settings, setSettings] = useStoredState(`gym-coach-rappels-${user.id || user.coachId || "coach"}`, {
+    courseStart: true,
+    absentMembers: true,
+    aiPrograms: true
+  });
+  const reminders = [
+    ...stats.todayCourses.map((course) => ({
+      title: `Cours aujourd'hui: ${course.title}`,
+      text: `${formatTime(course.startsAt)} - ${course.enrollments?.length || 0} eleves inscrits`,
+      icon: CalendarCheck
+    })),
+    {
+      title: "Suivi presences",
+      text: `${stats.attendanceCount} presences deja validees dans ton historique`,
+      icon: ClipboardCheck
+    },
+    {
+      title: "Programmes IA",
+      text: `${stats.members.length} eleves peuvent recevoir un plan personnalise`,
+      icon: BrainCircuit
+    }
+  ];
+
+  const toggle = (key) => setSettings({ ...settings, [key]: !settings[key] });
+
+  return (
+    <div className="coach-app">
+      <div className="notification-settings">
+        {[
+          ["courseStart", "Rappel avant cours", Timer],
+          ["absentMembers", "Eleves absents", ClipboardCheck],
+          ["aiPrograms", "Plans IA a generer", BrainCircuit]
+        ].map(([key, label, Icon]) => (
+          <button className={settings[key] ? "toggle-row active" : "toggle-row"} type="button" key={key} onClick={() => toggle(key)}>
+            <Icon size={18} />
+            <span>{label}</span>
+            <strong>{settings[key] ? "ON" : "OFF"}</strong>
+          </button>
+        ))}
+      </div>
+
+      <article className="coach-panel">
+        <div className="mobile-panel-head">
+          <div>
+            <p className="eyebrow">Rappels coach</p>
+            <h3>Notifications importantes</h3>
+          </div>
+          <Bell size={22} />
+        </div>
+        <div className="reminder-list">
+          {reminders.map((reminder) => {
+            const Icon = reminder.icon;
+            return (
+              <div key={reminder.title}>
+                <Icon size={18} />
+                <span>
+                  <strong>{reminder.title}</strong>
+                  <small>{reminder.text}</small>
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function CoachVideosPage({ data }) {
+  const members = getCoachMembers(data);
+  const videos = defaultVideos;
+
+  return (
+    <div className="coach-app">
+      <section className="video-hero coach-video-hero">
+        <div>
+          <p className="eyebrow">Videos coach</p>
+          <h2>Bibliotheque a recommander</h2>
+          <span>Prepare des supports rapides pour les eleves selon objectif et niveau.</span>
+        </div>
+        <Youtube size={54} />
+      </section>
+
+      <div className="fitness-video-grid">
+        {videos.map((video, index) => {
+          const member = members[index % Math.max(members.length, 1)];
+          return (
+            <a className={`fitness-video-card ${video.accent}`} href={video.url} key={video.title} rel="noreferrer" target="_blank">
+              <div className="video-thumb">
+                <Youtube size={30} />
+                <span>{video.minutes} min</span>
+              </div>
+              <h3>{video.title}</h3>
+              <p>{member ? `Recommande pour ${fullName(member)}` : video.level}</p>
+            </a>
+          );
+        })}
       </div>
     </div>
   );
