@@ -61,4 +61,26 @@ router.post(
   })
 );
 
+router.delete(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const id = Number(req.params.id);
+    const recommendation = await prisma.recommendation.findUnique({
+      where: { id },
+      select: { id: true, memberId: true }
+    });
+
+    if (!recommendation) {
+      return res.status(404).json({ message: "Recommandation introuvable." });
+    }
+
+    if (req.user.role === "MEMBER" && recommendation.memberId !== req.user.memberId) {
+      return res.status(403).json({ message: "Acces non autorise." });
+    }
+
+    await prisma.recommendation.delete({ where: { id } });
+    res.status(204).end();
+  })
+);
+
 export default router;

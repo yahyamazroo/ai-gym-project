@@ -324,10 +324,127 @@ const getCoachStats = (data) => {
   };
 };
 
+const getLastTrainingDate = (member) => {
+  const attendance = member?.attendance || [];
+  if (!attendance.length) return null;
+  return attendance
+    .map((item) => new Date(item.checkInAt))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((a, b) => b - a)[0] || null;
+};
+
+const getDaysSinceLastTraining = (member) => {
+  const lastTraining = getLastTrainingDate(member);
+  if (!lastTraining) return 7;
+  return Math.max(0, Math.floor((Date.now() - lastTraining.getTime()) / 86400000));
+};
+
+const getWeeklyAttendance = (member) => {
+  const weekStart = new Date();
+  weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1);
+  weekStart.setHours(0, 0, 0, 0);
+  return (member?.attendance || []).filter((item) => new Date(item.checkInAt) >= weekStart).length;
+};
+
+const getActiveGoal = (member, recommendation, stats) => {
+  const goal = recommendation?.goal || member?.objective || "Strength foundation";
+  const week = Math.max(1, Math.min(8, Math.ceil((stats.attendanceCount + 1) / 2)));
+  return {
+    label: `${goal} - Week ${week}/8`,
+    progress: Math.min(100, Math.round((week / 8) * 100))
+  };
+};
+
+const getSmartAlerts = (member, stats) => {
+  const daysSinceTraining = getDaysSinceLastTraining(member);
+  const alerts = [];
+
+  if (daysSinceTraining >= 3) {
+    alerts.push({
+      title: `You haven't trained in ${daysSinceTraining} days`,
+      text: "Start with a controlled session today to rebuild rhythm.",
+      tone: "warning"
+    });
+  }
+
+  if (Number(member?.progressScore || 0) < 45) {
+    alerts.push({
+      title: "Progress stagnating on bench press",
+      text: "Reduce load by 5% and add one clean back-off set.",
+      tone: "neutral"
+    });
+  }
+
+  if (stats.activeDays <= 7) {
+    alerts.push({
+      title: "Subscription renewal is close",
+      text: "Keep your training streak active by renewing early.",
+      tone: "info"
+    });
+  }
+
+  return alerts.slice(0, 3);
+};
+
+const getProgramAdaptation = (member, stats) => {
+  const recentWorkouts = (member?.attendance || []).slice(-5);
+  const progressScore = Number(member?.progressScore || 0);
+  const highConsistency = recentWorkouts.length >= 4;
+  const lowConsistency = recentWorkouts.length <= 1;
+
+  if (highConsistency && progressScore >= 55) {
+    return {
+      title: "Program adapted upward",
+      explanation: "Adjusted based on your recent performance.",
+      changes: ["Add 1 set to the first compound lift", "Increase working weight by 2.5-5%", "Keep reps in the 8-10 range"]
+    };
+  }
+
+  if (lowConsistency) {
+    return {
+      title: "Program adapted for restart",
+      explanation: "Adjusted based on your last 5 workouts.",
+      changes: ["Reduce total volume by 20%", "Use lighter warm-up sets", "Keep 2 reps in reserve on each set"]
+    };
+  }
+
+  return {
+    title: "Program adapted for steady progress",
+    explanation: "Adjusted based on your recent performance.",
+    changes: ["Keep current weights", "Add 2 reps to accessory movements", "Use a slower eccentric tempo"]
+  };
+};
+
+const getPerformanceInsight = (member) => {
+  const progress = Number(member?.progressScore || 0);
+  if (progress >= 70) {
+    return "You are improving in legs and overall work capacity. Push sessions should stay controlled to avoid fatigue.";
+  }
+  if (progress >= 45) {
+    return "You are building consistency. Lower body work is trending well, but push movements need cleaner progression.";
+  }
+  return "You are improving in legs but fatigued in push. Keep intensity moderate and protect recovery this week.";
+};
+
+const getCourseDifficulty = (course) => {
+  const text = `${course?.title || ""} ${course?.activity || ""}`.toLowerCase();
+  if (text.includes("hiit") || text.includes("boxing") || text.includes("intens")) return "Hard";
+  if (text.includes("yoga") || text.includes("mobil") || text.includes("stretch")) return "Easy";
+  return "Medium";
+};
+
+const getInitials = (name = "") =>
+  name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "GF";
+
 function App() {
   const [auth, setAuth] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("gym-ai-auth")) || null;
+      return JSON.parse(localStorage.getItem("getfit-auth")) || null;
     } catch {
       return null;
     }
@@ -349,11 +466,12 @@ function App() {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [theme, setTheme] = useState(() => localStorage.getItem("gym-ai-theme") || "light");
+  const [theme, setTheme] = useState(() => localStorage.getItem("getfit-theme") || "dark");
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("gym-ai-theme", theme);
+    localStorage.setItem("getfit-theme", theme);
   }, [theme]);
 
   const request = useCallback(
@@ -362,7 +480,7 @@ function App() {
   );
 
   const logout = useCallback(() => {
-    localStorage.removeItem("gym-ai-auth");
+    localStorage.removeItem("getfit-auth");
     setAuth(null);
     setView("dashboard");
   }, []);
@@ -435,11 +553,33 @@ function App() {
         method: "POST",
         body: credentials
       });
-      localStorage.setItem("gym-ai-auth", JSON.stringify(response));
+      localStorage.setItem("getfit-auth", JSON.stringify(response));
       setAuth(response);
       setView("dashboard");
     } catch (err) {
       setError(err.message);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const handleChangePassword = async (payload) => {
+    setWorking(true);
+    setError("");
+    setNotice("");
+    try {
+      await request("/auth/change-password", {
+        method: "PUT",
+        body: payload
+      });
+      setNotice("Mot de passe mis a jour.");
+      setPasswordDialogOpen(false);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        message: err.message || "Impossible de changer le mot de passe."
+      };
     } finally {
       setWorking(false);
     }
@@ -465,6 +605,12 @@ function App() {
       />
     );
   }
+
+  const sidebarProfile = auth.user.role === "MEMBER"
+    ? getMemberProfile(data)
+    : auth.user.role === "COACH"
+      ? getCoachProfile(data)
+      : null;
 
   return (
     <div className="app-shell">
@@ -496,13 +642,11 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <div className="user-chip">
-            <ShieldCheck size={18} />
-            <div>
-              <strong>{auth.user.name}</strong>
-              <span>{roleLabels[auth.user.role]}</span>
-            </div>
-          </div>
+          <SidebarProfile user={auth.user} profile={sidebarProfile} />
+          <button className="ghost-button sidebar-action" type="button" onClick={() => setPasswordDialogOpen(true)}>
+            <KeyRound size={17} />
+            Changer mot de passe
+          </button>
           <button className="ghost-button" type="button" onClick={logout}>
             <LogOut size={17} />
             Deconnexion
@@ -511,86 +655,134 @@ function App() {
       </aside>
 
       <main className="workspace">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Gestion salle de sport</p>
-            <h1>{activeNav.find((item) => item.id === view)?.label || "Dashboard"}</h1>
-          </div>
-          <div className="topbar-actions">
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-              title={theme === "light" ? "Activer le mode sombre" : "Activer le mode clair"}
-            >
-              {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
-              {theme === "light" ? "Mode sombre" : "Mode clair"}
-            </button>
-            <button className="icon-button" type="button" onClick={loadData} title="Actualiser les donnees">
-              <RefreshCw size={18} className={loading ? "spin" : ""} />
-            </button>
-          </div>
-        </header>
+        <div className="workspace-inner">
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">Gestion salle de sport</p>
+              <h1>{activeNav.find((item) => item.id === view)?.label || "Dashboard"}</h1>
+            </div>
+            <div className="topbar-actions">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+                title={theme === "light" ? "Activer le mode sombre" : "Activer le mode clair"}
+              >
+                {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
+                {theme === "light" ? "Mode sombre" : "Mode clair"}
+              </button>
+              <button className="icon-button" type="button" onClick={loadData} title="Actualiser les donnees">
+                <RefreshCw size={18} className={loading ? "spin" : ""} />
+              </button>
+            </div>
+          </header>
 
-        {error && <Alert tone="danger" message={error} />}
-        {notice && <Alert tone="success" message={notice} />}
+          {error && <Alert tone="danger" message={error} />}
+          {notice && <Alert tone="success" message={notice} />}
 
-        <section className="content-area">
-          {view === "dashboard" && (
-            <Dashboard
-              data={data}
-              user={auth.user}
-              onNavigate={setView}
-              onGenerate={(memberId) => mutate(() => request(`/recommendations/generate/${memberId}`, { method: "POST" }), "Programme IA genere.")}
-            />
-          )}
-          {view === "members" && (
-            <MembersPage data={data} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "coaches" && (
-            <CoachesPage data={data} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "plans" && (
-            <PlansPage data={data} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "subscriptions" && (
-            <SubscriptionsPage data={data} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "courses" && (
-            <CoursesPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "calendar" && (
-            <MemberCalendarPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "progress" && (
-            <MemberProgressPage member={getMemberProfile(data)} user={auth.user} data={data} />
-          )}
-          {view === "attendance" && (
-            <AttendancePage data={data} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "payments" && (
-            <PaymentsPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "recommendations" && (
-            <RecommendationsPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
-          )}
-          {view === "community" && <MemberCommunityPage member={getMemberProfile(data)} data={data} user={auth.user} />}
-          {view === "chat" && <MemberChatPage member={getMemberProfile(data)} user={auth.user} />}
-          {view === "subscription" && <MemberSubscriptionPage member={getMemberProfile(data)} data={data} user={auth.user} />}
-          {view === "notifications" && <MemberNotificationsPage member={getMemberProfile(data)} data={data} user={auth.user} />}
-          {view === "videos" && <MemberVideosPage recommendations={data.recommendations} />}
-          {view === "coachMessages" && <CoachMessagesPage data={data} user={auth.user} />}
-          {view === "coachNotifications" && <CoachNotificationsPage data={data} user={auth.user} />}
-          {view === "coachVideos" && <CoachVideosPage data={data} />}
-          {view === "coachPortal" && <CoachPortalPage data={data} />}
-        </section>
+          <section className="content-area">
+            {view === "dashboard" && (
+              <Dashboard
+                data={data}
+                user={auth.user}
+                onNavigate={setView}
+                onGenerate={(memberId) => mutate(() => request(`/recommendations/generate/${memberId}`, { method: "POST" }), "Programme IA genere.")}
+              />
+            )}
+            {view === "members" && (
+              <MembersPage data={data} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "coaches" && (
+              <CoachesPage data={data} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "plans" && (
+              <PlansPage data={data} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "subscriptions" && (
+              <SubscriptionsPage data={data} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "courses" && (
+              <CoursesPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "calendar" && (
+              <MemberCalendarPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "progress" && (
+              <MemberProgressPage member={getMemberProfile(data)} user={auth.user} data={data} />
+            )}
+            {view === "attendance" && (
+              <AttendancePage data={data} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "payments" && (
+              <PaymentsPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "recommendations" && (
+              <RecommendationsPage data={data} user={auth.user} mutate={mutate} request={request} working={working} />
+            )}
+            {view === "community" && <MemberCommunityPage member={getMemberProfile(data)} data={data} user={auth.user} />}
+            {view === "chat" && <MemberChatPage member={getMemberProfile(data)} user={auth.user} />}
+            {view === "subscription" && <MemberSubscriptionPage member={getMemberProfile(data)} data={data} user={auth.user} />}
+            {view === "notifications" && <MemberNotificationsPage member={getMemberProfile(data)} data={data} user={auth.user} />}
+            {view === "videos" && <MemberVideosPage recommendations={data.recommendations} />}
+            {view === "coachMessages" && <CoachMessagesPage data={data} user={auth.user} />}
+            {view === "coachNotifications" && <CoachNotificationsPage data={data} user={auth.user} />}
+            {view === "coachVideos" && <CoachVideosPage data={data} />}
+            {view === "coachPortal" && <CoachPortalPage data={data} />}
+          </section>
+        </div>
       </main>
+      {passwordDialogOpen && (
+        <ChangePasswordModal
+          working={working}
+          onClose={() => setPasswordDialogOpen(false)}
+          onSubmit={handleChangePassword}
+        />
+      )}
     </div>
   );
 }
 
 function LoginScreen({ onLogin, working, error, theme, onToggleTheme }) {
   const [form, setForm] = useState({ email: "", password: "" });
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotMessage, setForgotMessage] = useState("");
+  const [forgotResetToken, setForgotResetToken] = useState("");
+  const [recovering, setRecovering] = useState(false);
+
+  const requestPasswordReset = async (email) => {
+    setRecovering(true);
+    setForgotMessage("");
+    setForgotResetToken("");
+    try {
+      const response = await api("/auth/forgot-password", {
+        method: "POST",
+        body: { email }
+      });
+      setForgotMessage(response.message);
+      setForgotResetToken(response.resetToken || "");
+    } catch (err) {
+      setForgotMessage(err.message);
+    } finally {
+      setRecovering(false);
+    }
+  };
+
+  const resetPassword = async (payload) => {
+    setRecovering(true);
+    setForgotMessage("");
+    try {
+      const response = await api("/auth/reset-password", {
+        method: "POST",
+        body: payload
+      });
+      setForgotMessage(response.message);
+      setForgotResetToken("");
+    } catch (err) {
+      setForgotMessage(err.message);
+    } finally {
+      setRecovering(false);
+    }
+  };
 
   return (
     <main className="login-screen">
@@ -602,10 +794,10 @@ function LoginScreen({ onLogin, working, error, theme, onToggleTheme }) {
         <div className="login-visual" aria-hidden="true">
           <div className="visual-kicker">
             <Sparkles size={18} />
-            Performance club
+            Espace premium
           </div>
-          <h2>{APP_NAME}</h2>
-          <p>Coaching, planning et programmes IA dans un seul espace.</p>
+          <h2>GETFIT GYM</h2>
+          <p>Une console claire pour gerer les membres, les coachs, les cours et la progression.</p>
 
           <div className="pulse-arena">
             <div className="pulse-ring ring-one" />
@@ -631,10 +823,10 @@ function LoginScreen({ onLogin, working, error, theme, onToggleTheme }) {
           <div className="login-metrics">
             <div>
               <strong>24/7</strong>
-              <span>Access</span>
+              <span>Acces</span>
             </div>
             <div>
-              <strong>AI</strong>
+              <strong>IA</strong>
               <span>Plans</span>
             </div>
             <div>
@@ -660,7 +852,7 @@ function LoginScreen({ onLogin, working, error, theme, onToggleTheme }) {
           <div className="login-brand">
             <LogoMark large />
             <div>
-              <p className="eyebrow">{BRAND_QUOTE}</p>
+              <p className="eyebrow">Acces securise</p>
               <h1>{APP_NAME}</h1>
             </div>
           </div>
@@ -706,6 +898,12 @@ function LoginScreen({ onLogin, working, error, theme, onToggleTheme }) {
                 />
               </div>
             </label>
+            <div className="login-help-row">
+              <span>Besoin d'aide ?</span>
+              <button type="button" className="text-link-button" onClick={() => setForgotOpen(true)}>
+                Mot de passe oublie
+              </button>
+            </div>
             {error && <Alert tone="danger" message={error} />}
             <button className={working ? "primary-button login-submit is-loading" : "primary-button login-submit"} type="submit" disabled={working}>
               {working ? <LoaderCircle size={18} className="loading-icon" /> : <ShieldCheck size={18} />}
@@ -715,10 +913,25 @@ function LoginScreen({ onLogin, working, error, theme, onToggleTheme }) {
 
           <div className="login-footnote">
             <span />
-            Powered by GETFIT AI
+            Plateforme GETFIT GYM
           </div>
         </div>
       </section>
+      {forgotOpen && (
+        <ForgotPasswordModal
+          defaultEmail={form.email}
+          message={forgotMessage}
+          resetToken={forgotResetToken}
+          working={recovering}
+          onClose={() => {
+            setForgotOpen(false);
+            setForgotMessage("");
+            setForgotResetToken("");
+          }}
+          onSubmit={requestPasswordReset}
+          onReset={resetPassword}
+        />
+      )}
     </main>
   );
 }
@@ -735,10 +948,264 @@ function Alert({ tone, message }) {
   return <div className={`alert ${tone}`}>{message}</div>;
 }
 
+function SidebarProfile({ user, profile }) {
+  const displayName = profile ? fullName(profile) : user.name;
+  const level = profile?.level || profile?.specialty || roleLabels[user.role];
+  const quickStats = user.role === "MEMBER"
+    ? [
+        profile?.weightKg ? `${profile.weightKg} kg` : "Weight --",
+        profile?.objective || "Goal pending"
+      ]
+    : [roleLabels[user.role], "GETFIT workspace"];
+
+  return (
+    <div className="sidebar-profile">
+      <div className="sidebar-avatar">{getInitials(displayName)}</div>
+      <div className="sidebar-profile-main">
+        <strong>{displayName}</strong>
+        <span>{level}</span>
+      </div>
+      <div className="sidebar-profile-stats">
+        {quickStats.map((item) => (
+          <small key={item}>{item}</small>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ForgotPasswordModal({ defaultEmail, message, resetToken, working, onClose, onSubmit, onReset }) {
+  const [email, setEmail] = useState(defaultEmail || "");
+  const [resetForm, setResetForm] = useState({
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [localError, setLocalError] = useState("");
+
+  const submitReset = (event) => {
+    event.preventDefault();
+    setLocalError("");
+
+    if (resetForm.newPassword !== resetForm.confirmPassword) {
+      setLocalError("Les deux mots de passe ne correspondent pas.");
+      return;
+    }
+
+    onReset({
+      token: resetToken,
+      newPassword: resetForm.newPassword
+    });
+  };
+
+  return (
+    <div className="modal-backdrop login-modal-backdrop" role="presentation">
+      <section className="password-modal forgot-modal" role="dialog" aria-modal="true" aria-labelledby="forgot-modal-title">
+        <button className="modal-close" type="button" onClick={onClose} title="Fermer">
+          <X size={18} />
+        </button>
+        <div className="modal-head">
+          <div className="modal-icon">
+            <Mail size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">Recuperation</p>
+            <h2 id="forgot-modal-title">Mot de passe oublie</h2>
+            <span>{resetToken ? "Mode local active: choisissez un nouveau mot de passe." : "Entrez votre email pour lancer la recuperation."}</span>
+          </div>
+        </div>
+
+        {resetToken ? (
+          <form className="password-form" onSubmit={submitReset}>
+            <label className="login-field">
+              <span>Nouveau mot de passe</span>
+              <div className="input-shell">
+                <ShieldCheck size={18} />
+                <input
+                  type="password"
+                  minLength={8}
+                  value={resetForm.newPassword}
+                  onChange={(event) => setResetForm({ ...resetForm, newPassword: event.target.value })}
+                  required
+                />
+              </div>
+            </label>
+            <label className="login-field">
+              <span>Confirmer</span>
+              <div className="input-shell">
+                <BadgeCheck size={18} />
+                <input
+                  type="password"
+                  minLength={8}
+                  value={resetForm.confirmPassword}
+                  onChange={(event) => setResetForm({ ...resetForm, confirmPassword: event.target.value })}
+                  required
+                />
+              </div>
+            </label>
+
+            {localError && <Alert tone="danger" message={localError} />}
+            {message && <Alert tone="success" message={message} />}
+
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={onClose}>
+                Fermer
+              </button>
+              <button className="primary-button" type="submit" disabled={working}>
+                {working ? <LoaderCircle size={17} className="loading-icon" /> : <Save size={17} />}
+                Reinitialiser
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form
+            className="password-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onSubmit(email);
+            }}
+          >
+            <label className="login-field">
+              <span>Email du compte</span>
+              <div className="input-shell">
+                <Mail size={18} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="email@domain.com"
+                  required
+                />
+              </div>
+            </label>
+
+            {message && <Alert tone="success" message={message} />}
+
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={onClose}>
+                Fermer
+              </button>
+              <button className="primary-button" type="submit" disabled={working}>
+                {working ? <LoaderCircle size={17} className="loading-icon" /> : <Send size={17} />}
+                Envoyer la demande
+              </button>
+            </div>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ChangePasswordModal({ working, onClose, onSubmit }) {
+  const [form, setForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: ""
+  });
+  const [localError, setLocalError] = useState("");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setLocalError("");
+
+    if (form.newPassword !== form.confirmPassword) {
+      setLocalError("Les deux nouveaux mots de passe ne correspondent pas.");
+      return;
+    }
+
+    if (form.currentPassword === form.newPassword) {
+      setLocalError("Choisissez un mot de passe different de l'ancien.");
+      return;
+    }
+
+    const result = await onSubmit({
+      currentPassword: form.currentPassword,
+      newPassword: form.newPassword
+    });
+
+    if (result?.ok === false) {
+      setLocalError(result.message);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="password-modal" role="dialog" aria-modal="true" aria-labelledby="password-modal-title">
+        <button className="modal-close" type="button" onClick={onClose} title="Fermer">
+          <X size={18} />
+        </button>
+        <div className="modal-head">
+          <div className="modal-icon">
+            <LockKeyhole size={22} />
+          </div>
+          <div>
+            <p className="eyebrow">Securite du compte</p>
+            <h2 id="password-modal-title">Changer le mot de passe</h2>
+            <span>Utilisez au moins 8 caracteres pour le nouveau mot de passe.</span>
+          </div>
+        </div>
+
+        <form className="password-form" onSubmit={submit}>
+          <label className="login-field">
+            <span>Mot de passe actuel</span>
+            <div className="input-shell">
+              <KeyRound size={18} />
+              <input
+                type="password"
+                value={form.currentPassword}
+                onChange={(event) => setForm({ ...form, currentPassword: event.target.value })}
+                required
+              />
+            </div>
+          </label>
+          <label className="login-field">
+            <span>Nouveau mot de passe</span>
+            <div className="input-shell">
+              <ShieldCheck size={18} />
+              <input
+                type="password"
+                minLength={8}
+                value={form.newPassword}
+                onChange={(event) => setForm({ ...form, newPassword: event.target.value })}
+                required
+              />
+            </div>
+          </label>
+          <label className="login-field">
+            <span>Confirmer</span>
+            <div className="input-shell">
+              <BadgeCheck size={18} />
+              <input
+                type="password"
+                minLength={8}
+                value={form.confirmPassword}
+                onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })}
+                required
+              />
+            </div>
+          </label>
+
+          {localError && <Alert tone="danger" message={localError} />}
+
+          <div className="modal-actions">
+            <button className="secondary-button" type="button" onClick={onClose}>
+              Annuler
+            </button>
+            <button className="primary-button" type="submit" disabled={working}>
+              {working ? <LoaderCircle size={17} className="loading-icon" /> : <Save size={17} />}
+              Enregistrer
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function Dashboard({ data, user, onNavigate, onGenerate }) {
   if (user.role === "MEMBER") {
     const member = getMemberProfile(data);
-    return <MemberHomeV2 member={member} data={data} user={user} onGenerate={onGenerate} />;
+    return <MemberHomeV2 member={member} data={data} user={user} onGenerate={onGenerate} onNavigate={onNavigate} />;
   }
 
   if (user.role === "COACH") {
@@ -754,7 +1221,7 @@ function Dashboard({ data, user, onNavigate, onGenerate }) {
   const revenueSeries = buildSeries(Number(counts.revenue || 0), [0.52, 0.58, 0.7, 0.64, 0.82, 1], ["Jan", "Feb", "Mar", "Apr", "May", "Jun"]);
   const attendanceSeries = buildSeries(Number(counts.attendanceToday || 4) * 12, [0.42, 0.66, 0.5, 0.86, 0.74, 1], ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
   const subscriptionSeries = buildSeries(Number(counts.activeSubscriptions || 3) * 8, [0.4, 0.55, 0.68, 0.76, 0.88, 1], ["W1", "W2", "W3", "W4", "W5", "W6"]);
-  const today = new Intl.DateTimeFormat("en-US", {
+  const today = new Intl.DateTimeFormat("fr-FR", {
     weekday: "long",
     month: "long",
     day: "numeric"
@@ -770,12 +1237,12 @@ function Dashboard({ data, user, onNavigate, onGenerate }) {
     <div className="dashboard-layout">
       <section className="dashboard-hero animate-in" style={{ "--delay": "0ms" }}>
         <div>
-          <p className="eyebrow">GETFIT command center</p>
-          <h2>Welcome back, {welcomeRole} 👋</h2>
+          <p className="eyebrow">Centre de pilotage GETFIT</p>
+          <h2>Bonjour, {welcomeRole}</h2>
           <span>{today}</span>
           <p>
-            {counts.members || 0} active profiles, {counts.activeSubscriptions || 0} running subscriptions,
-            and {formatMoney(counts.revenue || 0)} collected revenue are ready to review.
+            {counts.members || 0} profils actifs, {counts.activeSubscriptions || 0} abonnements en cours
+            et {formatMoney(counts.revenue || 0)} de revenus encaisses sont prets a verifier.
           </p>
         </div>
         <div className="hero-actions">
@@ -792,23 +1259,23 @@ function Dashboard({ data, user, onNavigate, onGenerate }) {
       </section>
 
       <div className="metric-grid">
-        <Metric icon={Users} label="Membres" value={counts.members || 0} trend="+12% this month" delay={80} />
-        <Metric icon={UserRoundCog} label="Coachs" value={counts.coaches || 0} trend="+2 this month" delay={160} />
-        <Metric icon={BadgeCheck} label="Abonnements actifs" value={counts.activeSubscriptions || 0} trend="+18% growth" delay={240} />
-        <Metric icon={CreditCard} label="Revenus encaisses" value={counts.revenue || 0} formatter={formatMoney} trend="+9% this week" delay={320} />
-        <Metric icon={ClipboardCheck} label="Presences aujourd'hui" value={counts.attendanceToday || 0} trend="+6% vs yesterday" delay={400} />
+        <Metric icon={Users} label="Membres" value={counts.members || 0} trend="+12% ce mois" delay={80} />
+        <Metric icon={UserRoundCog} label="Coachs" value={counts.coaches || 0} trend="+2 ce mois" delay={160} />
+        <Metric icon={BadgeCheck} label="Abonnements actifs" value={counts.activeSubscriptions || 0} trend="+18% croissance" delay={240} />
+        <Metric icon={CreditCard} label="Revenus encaisses" value={counts.revenue || 0} formatter={formatMoney} trend="+9% cette semaine" delay={320} />
+        <Metric icon={ClipboardCheck} label="Presences aujourd'hui" value={counts.attendanceToday || 0} trend="+6% vs hier" delay={400} />
       </div>
 
       <section className="chart-grid animate-in" style={{ "--delay": "180ms" }}>
-        <DashboardChart title="Revenue Trend" subtitle="Monthly income" type="line" data={revenueSeries} formatter={formatMoney} />
-        <DashboardChart title="Attendance" subtitle="Weekly check-ins" type="bar" data={attendanceSeries} />
-        <DashboardChart title="Subscription Growth" subtitle="Active memberships" type="area" data={subscriptionSeries} />
+        <DashboardChart title="Revenus" subtitle="Evolution mensuelle" type="line" data={revenueSeries} formatter={formatMoney} />
+        <DashboardChart title="Presences" subtitle="Check-ins hebdomadaires" type="bar" data={attendanceSeries} />
+        <DashboardChart title="Abonnements" subtitle="Membres actifs" type="area" data={subscriptionSeries} />
       </section>
 
       <section className="ai-insights animate-in" style={{ "--delay": "260ms" }}>
-        <InsightCard icon={TriangleAlert} title={`${expiringSubscriptions.length || 3} members may cancel soon`} text="Subscriptions ending soon need renewal attention." tone="warning" />
-        <InsightCard icon={Trophy} title={`Best performing course: ${bestCourse?.title || "Cardio Boxing"}`} text={`${bestCourse?.enrollments?.length || 8} members are engaged in this class.`} tone="success" />
-        <InsightCard icon={TrendingUp} title="Revenue increased this week" text="Paid transactions are trending above the previous period." tone="growth" />
+        <InsightCard icon={TriangleAlert} title={`${expiringSubscriptions.length || 3} abonnements a renouveler`} text="Les fins d'abonnement proches demandent une relance." tone="warning" />
+        <InsightCard icon={Trophy} title={`Meilleur cours: ${bestCourse?.title || "Cardio Boxing"}`} text={`${bestCourse?.enrollments?.length || 8} membres sont engages sur cette seance.`} tone="success" />
+        <InsightCard icon={TrendingUp} title="Revenus en hausse cette semaine" text="Les paiements valides progressent face a la periode precedente." tone="growth" />
       </section>
 
       <div className="split-grid animate-in" style={{ "--delay": "340ms" }}>
@@ -968,13 +1435,19 @@ function MemberHome({ member, onGenerate }) {
   );
 }
 
-function MemberHomeV2({ member, data, user, onGenerate }) {
+function MemberHomeV2({ member, data, user, onGenerate, onNavigate }) {
   const stats = getMemberStats(member, data, user);
   const subscription = stats.subscription;
   const recommendation = member?.recommendations?.[0] || data.recommendations?.[0];
   const badges = getMemberBadges(member, stats);
   const leaderboard = buildLeaderboard(member);
   const currentRank = leaderboard.findIndex((item) => item.current) + 1;
+  const [programAdaptation, setProgramAdaptation] = useState(null);
+  const [todayStarted, setTodayStarted] = useState(false);
+  const activeGoal = getActiveGoal(member, recommendation, stats);
+  const smartAlerts = getSmartAlerts(member, stats);
+  const weeklyAttendance = getWeeklyAttendance(member);
+  const streakDays = Math.min(14, Math.max(1, stats.attendanceCount || 1));
   const upcomingCourses = stats.bookedCourses
     .filter((course) => new Date(course.startsAt).getTime() >= Date.now() - 3600000)
     .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
@@ -986,6 +1459,40 @@ function MemberHomeV2({ member, data, user, onGenerate }) {
 
   return (
     <div className="member-app">
+      <section className="member-command-center animate-in">
+        <div className="active-goal-card">
+          <div>
+            <p className="eyebrow">Active Goal</p>
+            <h2>{activeGoal.label}</h2>
+            <span>{activeGoal.progress}% through this training block</span>
+          </div>
+          <div className="goal-progress-track" aria-label="Goal progress">
+            <span style={{ width: `${activeGoal.progress}%` }} />
+          </div>
+        </div>
+
+        <div className="today-action-card">
+          <p className="eyebrow">Today Action</p>
+          <button className={todayStarted ? "primary-button today-action done" : "primary-button today-action"} type="button" onClick={() => setTodayStarted(true)}>
+            {todayStarted ? <CheckCircle2 size={18} /> : <PlayCircle size={18} />}
+            {todayStarted ? "Workout started" : "Start workout"}
+          </button>
+          <small>{stats.nextCourse ? `Next class at ${formatTime(stats.nextCourse.startsAt)}` : "Recommended: 42 min strength session"}</small>
+        </div>
+
+        <div className="smart-alert-stack">
+          {smartAlerts.map((alert) => (
+            <article className={`smart-alert ${alert.tone}`} key={alert.title}>
+              <TriangleAlert size={16} />
+              <div>
+                <strong>{alert.title}</strong>
+                <span>{alert.text}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="mobile-hero">
         <div>
           <p className="eyebrow">Portail membre</p>
@@ -1003,7 +1510,7 @@ function MemberHomeV2({ member, data, user, onGenerate }) {
       <div className="member-stat-grid">
         <MemberDashboardStat icon={BadgeCheck} label="Abonnement" value={subscription?.status || "N/A"} caption={`${stats.activeDays} jours restants`} accent="mint" />
         <MemberDashboardStat icon={CalendarCheck} label="Reservations" value={stats.bookedCourses.length} caption="Cours reserves" accent="blue" />
-        <MemberDashboardStat icon={Flame} label="Presences" value={stats.attendanceCount} caption="Historique sportif" accent="sunset" />
+        <MemberDashboardStat icon={Flame} label="Streak" value={`${streakDays} days`} caption="Training rhythm" accent="sunset" />
         <MemberDashboardStat icon={Trophy} label="Classement" value={`#${currentRank || "-"}`} caption="Leaderboard club" accent="violet" />
       </div>
 
@@ -1019,6 +1526,24 @@ function MemberHomeV2({ member, data, user, onGenerate }) {
             </button>
           </div>
           <p>{recommendation?.summary || "Genere un programme adapte a ton niveau, ton objectif et ton historique."}</p>
+          <div className="ai-program-actions">
+            <button className="secondary-button" type="button" onClick={() => setProgramAdaptation(getProgramAdaptation(member, stats))}>
+              <Sparkles size={16} />
+              Adapt my program
+            </button>
+            <span>Based on last 5 workouts</span>
+          </div>
+          {programAdaptation && (
+            <div className="adaptation-panel">
+              <strong>{programAdaptation.title}</strong>
+              <p>{programAdaptation.explanation}</p>
+              <ul>
+                {programAdaptation.changes.map((change) => (
+                  <li key={change}>{change}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="training-focus-row">
             <span><Dumbbell size={15} /> {recommendation?.weeklyFrequency || 3} seances</span>
             <span><Timer size={15} /> 45 min</span>
@@ -1034,16 +1559,21 @@ function MemberHomeV2({ member, data, user, onGenerate }) {
             </div>
             <Medal size={22} />
           </div>
+          <div className="streak-summary">
+            <Flame size={18} />
+            <strong>{streakDays} days in a row</strong>
+          </div>
           <div className="badge-row">
             {badges.map((badge) => {
               const Icon = badge.icon;
               return (
-                <span className={badge.unlocked ? `mini-badge ${badge.accent}` : "mini-badge locked"} key={badge.title} title={badge.text}>
+                <span className={badge.unlocked ? `mini-badge animated ${badge.accent}` : "mini-badge locked"} key={badge.title} title={badge.text}>
                   <Icon size={16} />
                 </span>
               );
             })}
           </div>
+          <WeeklyMissionList weeklyAttendance={weeklyAttendance} />
         </article>
       </div>
 
@@ -1056,11 +1586,7 @@ function MemberHomeV2({ member, data, user, onGenerate }) {
             </div>
             <BarChart3 size={22} />
           </div>
-          <MiniBars values={[42, 64, 55, 78, stats.progress || 68]} />
-          <div className="training-focus-row">
-            <span><HeartPulse size={15} /> {member.weightKg || "--"} kg</span>
-            <span><Gauge size={15} /> {stats.progress}%</span>
-          </div>
+          <MemberAnalyticsPanel member={member} stats={stats} />
         </article>
 
         <article className="mobile-panel">
@@ -1071,20 +1597,11 @@ function MemberHomeV2({ member, data, user, onGenerate }) {
             </div>
             <CalendarDays size={22} />
           </div>
-          <div className="compact-course-list">
-            {upcomingCourses.length ? (
-              upcomingCourses.map((course) => (
-                <div key={course.id}>
-                  <strong>{course.title}</strong>
-                  <span>{formatDateTime(course.startsAt)} - {fullName(course.coach)}</span>
-                </div>
-              ))
-            ) : (
-              <span>Aucun cours reserve.</span>
-            )}
-          </div>
+          <UpgradedCourseList courses={upcomingCourses} onBookNext={() => onNavigate("calendar")} />
         </article>
       </div>
+
+      <SmartPerformanceInsight member={member} />
     </div>
   );
 }
@@ -1120,6 +1637,160 @@ function MiniBars({ values }) {
         <span key={`${value}-${index}`} style={{ "--height": `${Math.max(16, (value / max) * 100)}%` }} />
       ))}
     </div>
+  );
+}
+
+function WeeklyMissionList({ weeklyAttendance }) {
+  const missions = [
+    { label: "Complete 3 workouts", current: Math.min(weeklyAttendance, 3), target: 3 },
+    { label: "Book next class", current: weeklyAttendance > 0 ? 1 : 0, target: 1 }
+  ];
+
+  return (
+    <div className="weekly-missions">
+      {missions.map((mission) => {
+        const progress = Math.round((mission.current / mission.target) * 100);
+        return (
+          <div className="mission-item" key={mission.label}>
+            <div>
+              <span>{mission.label}</span>
+              <small>{mission.current}/{mission.target}</small>
+            </div>
+            <div className="mission-track">
+              <span style={{ width: `${Math.min(progress, 100)}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MemberAnalyticsPanel({ member, stats }) {
+  const [activeMetric, setActiveMetric] = useState("Weight");
+  const [hoveredPoint, setHoveredPoint] = useState(null);
+  const datasets = {
+    Weight: {
+      insight: "+1.2 kg in 4 weeks",
+      values: [Number(member.weightKg || 72) - 2, Number(member.weightKg || 72) - 1.4, Number(member.weightKg || 72) - 0.8, Number(member.weightKg || 72) - 0.2, Number(member.weightKg || 72)],
+      suffix: "kg"
+    },
+    Strength: {
+      insight: "+8% this week",
+      values: [42, 48, 52, 57, Math.max(60, Number(stats.progress || 60))],
+      suffix: "%"
+    },
+    Frequency: {
+      insight: `${getWeeklyAttendance(member)}/3 workouts completed`,
+      values: [1, 2, 2, Math.min(4, getWeeklyAttendance(member) + 1), getWeeklyAttendance(member)],
+      suffix: "x"
+    }
+  };
+  const dataset = datasets[activeMetric];
+  const max = Math.max(...dataset.values, 1);
+
+  return (
+    <div className="analytics-panel">
+      <div className="analytics-tabs" role="tablist" aria-label="Performance filters">
+        {Object.keys(datasets).map((metric) => (
+          <button
+            className={activeMetric === metric ? "active" : ""}
+            key={metric}
+            type="button"
+            onClick={() => {
+              setActiveMetric(metric);
+              setHoveredPoint(null);
+            }}
+          >
+            {metric}
+          </button>
+        ))}
+      </div>
+      <div className="analytics-insight">
+        <TrendingUp size={16} />
+        <strong>{dataset.insight}</strong>
+      </div>
+      <div className="analytics-chart">
+        {dataset.values.map((value, index) => (
+          <button
+            className="analytics-bar"
+            key={`${activeMetric}-${index}`}
+            type="button"
+            onMouseEnter={() => setHoveredPoint({ week: index + 1, value })}
+            onFocus={() => setHoveredPoint({ week: index + 1, value })}
+            onMouseLeave={() => setHoveredPoint(null)}
+            onBlur={() => setHoveredPoint(null)}
+            style={{ "--height": `${Math.max(18, (value / max) * 100)}%` }}
+            aria-label={`${activeMetric} week ${index + 1}: ${value}${dataset.suffix}`}
+          >
+            <span />
+          </button>
+        ))}
+        {hoveredPoint && (
+          <div className="chart-hover-card">
+            <strong>Week {hoveredPoint.week}</strong>
+            <span>{hoveredPoint.value}{dataset.suffix} - workout details</span>
+          </div>
+        )}
+      </div>
+      <div className="training-focus-row">
+        <span><HeartPulse size={15} /> {member.weightKg || "--"} kg</span>
+        <span><Gauge size={15} /> {stats.progress}%</span>
+      </div>
+    </div>
+  );
+}
+
+function UpgradedCourseList({ courses, onBookNext }) {
+  if (!courses.length) {
+    return (
+      <div className="empty-course-cta">
+        <span>Aucun cours reserve.</span>
+        <button className="secondary-button" type="button" onClick={onBookNext}>
+          <CalendarDays size={16} />
+          Book next class
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="upgraded-course-list">
+      {courses.map((course) => {
+        const remainingSpots = Math.max(0, Number(course.capacity || 0) - (course.enrollments?.length || 0));
+        return (
+          <article className="reservation-card" key={course.id}>
+            <div className="coach-avatar mini">{getInitials(fullName(course.coach))}</div>
+            <div>
+              <strong>{course.title}</strong>
+              <span>{formatDateTime(course.startsAt)} - {fullName(course.coach)}</span>
+              <div className="reservation-meta">
+                <small>{remainingSpots} spots left</small>
+                <small>{getCourseDifficulty(course)}</small>
+              </div>
+            </div>
+            <button className="secondary-button compact" type="button" onClick={onBookNext}>
+              Book next class
+            </button>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function SmartPerformanceInsight({ member }) {
+  return (
+    <article className="smart-performance-insight">
+      <div className="insight-icon">
+        <BrainCircuit size={20} />
+      </div>
+      <div>
+        <p className="eyebrow">Smart performance insight</p>
+        <h3>{getPerformanceInsight(member)}</h3>
+        <span>Generated after recent workout patterns and progression data.</span>
+      </div>
+    </article>
   );
 }
 
@@ -1868,7 +2539,7 @@ function CoursesPage({ data, user, mutate, request, working }) {
   const [editingId, setEditingId] = useState(null);
   const [selectedMemberId, setSelectedMemberId] = useState("");
 
-  const canManage = user.role === "ADMIN" || user.role === "COACH";
+  const canManage = user.role === "COACH";
 
   const submit = (event) => {
     event.preventDefault();
@@ -1906,7 +2577,6 @@ function CoursesPage({ data, user, mutate, request, working }) {
           <form className="form-grid wide" onSubmit={submit}>
             <TextField label="Titre" value={form.title} onChange={(value) => setForm({ ...form, title: value })} required />
             <TextField label="Activite" value={form.activity} onChange={(value) => setForm({ ...form, activity: value })} required />
-            {user.role === "ADMIN" && <SelectField label="Coach" value={form.coachId} onChange={(value) => setForm({ ...form, coachId: value })} options={data.coaches.map((coach) => ({ value: coach.id, label: fullName(coach) }))} required />}
             <TextField label="Salle" value={form.room} onChange={(value) => setForm({ ...form, room: value })} />
             <TextField label="Debut" type="datetime-local" value={form.startsAt} onChange={(value) => setForm({ ...form, startsAt: value })} required />
             <TextField label="Fin" type="datetime-local" value={form.endsAt} onChange={(value) => setForm({ ...form, endsAt: value })} required />
@@ -1970,11 +2640,9 @@ function CoursesPage({ data, user, mutate, request, working }) {
                     <button type="button" className="icon-button" onClick={() => edit(course)} title="Modifier">
                       <Edit3 size={16} />
                     </button>
-                    {user.role === "ADMIN" && (
-                      <button type="button" className="icon-button danger" onClick={() => window.confirm("Supprimer ce cours ?") && mutate(() => request(`/courses/${course.id}`, { method: "DELETE" }), "Cours supprime.")} title="Supprimer">
-                        <Trash2 size={16} />
-                      </button>
-                    )}
+                    <button type="button" className="icon-button danger" onClick={() => window.confirm("Supprimer ce cours ?") && mutate(() => request(`/courses/${course.id}`, { method: "DELETE" }), "Cours supprime.")} title="Supprimer">
+                      <Trash2 size={16} />
+                    </button>
                   </>
                 )}
               </div>
@@ -2125,6 +2793,13 @@ function getPaymentMethodIcon(method = "") {
 function RecommendationsPage({ data, user, mutate, request, working }) {
   const defaultMember = user.role === "MEMBER" ? user.memberId : "";
   const [memberId, setMemberId] = useState(defaultMember);
+  const [selectedId, setSelectedId] = useState(null);
+  const recommendations = data.recommendations || [];
+  const selectedRecommendation =
+    recommendations.find((recommendation) => recommendation.id === selectedId) || recommendations[0] || null;
+  const selectedPlan = parsePlan(selectedRecommendation?.plan);
+  const selectedSessions = selectedPlan.weeklyStructure || [];
+  const selectedVideos = selectedPlan.youtubeVideos || selectedPlan.videos || [];
 
   const generate = () => {
     const target = user.role === "MEMBER" ? user.memberId : memberId;
@@ -2135,10 +2810,30 @@ function RecommendationsPage({ data, user, mutate, request, working }) {
     );
   };
 
+  const removeRecommendation = (recommendation) => {
+    const label = recommendation ? `${recommendation.goal} - ${formatDate(recommendation.generatedAt)}` : "ce programme";
+    if (!window.confirm(`Supprimer ${label} ?`)) return;
+    mutate(
+      () => request(`/recommendations/${recommendation.id}`, { method: "DELETE" }),
+      "Programme supprime."
+    ).then(() => {
+      if (selectedId === recommendation.id) setSelectedId(null);
+    });
+  };
+
   return (
-    <div className="stack">
-      <Panel title="Generateur de programme" icon={BrainCircuit}>
-        <div className="toolbar-line">
+    <div className="program-page">
+      <section className="program-hero">
+        <div>
+          <p className="eyebrow">Programme intelligent</p>
+          <h2>{selectedRecommendation?.goal || "Aucun programme"}</h2>
+          <span>
+            {recommendations.length
+              ? `${recommendations.length} programmes disponibles - dernier ajout ${formatDate(recommendations[0].generatedAt)}`
+              : "Generez un premier plan adapte a votre profil sportif."}
+          </span>
+        </div>
+        <div className="program-hero-actions">
           {user.role !== "MEMBER" && (
             <SelectField
               label="Membre"
@@ -2147,17 +2842,143 @@ function RecommendationsPage({ data, user, mutate, request, working }) {
               options={data.members.map((member) => ({ value: member.id, label: `${fullName(member)} - ${member.objective}` }))}
             />
           )}
-          <button className="primary-button" type="button" onClick={generate} disabled={working}>
+          <button className="primary-button" type="button" onClick={generate} disabled={working || (user.role !== "MEMBER" && !memberId)}>
             <BrainCircuit size={18} />
-            Generer recommandation
+            Generer un nouveau programme
           </button>
         </div>
-      </Panel>
+      </section>
 
-      <div className="recommendation-grid">
-        {data.recommendations.map((recommendation) => (
-          <RecommendationCard key={recommendation.id} recommendation={recommendation} showMember={user.role !== "MEMBER"} />
-        ))}
+      <div className="program-layout">
+        <aside className="program-history">
+          <div className="program-section-head">
+            <div>
+              <p className="eyebrow">Historique</p>
+              <h3>Mes recommandations</h3>
+            </div>
+            <Receipt size={21} />
+          </div>
+
+          <div className="program-history-list">
+            {recommendations.map((recommendation) => {
+              const active = selectedRecommendation?.id === recommendation.id;
+              const plan = parsePlan(recommendation.plan);
+              return (
+                <article className={active ? "program-history-item active" : "program-history-item"} key={recommendation.id}>
+                  <button type="button" onClick={() => setSelectedId(recommendation.id)}>
+                    <span>
+                      {user.role !== "MEMBER" && recommendation.member && <small>{fullName(recommendation.member)}</small>}
+                      <strong>{recommendation.goal}</strong>
+                      <em>{formatDate(recommendation.generatedAt)}</em>
+                    </span>
+                    <b>{recommendation.intensity}</b>
+                    {plan.focusTag && <small>Focus {plan.focusTag}</small>}
+                  </button>
+                  <button
+                    className="program-delete"
+                    type="button"
+                    onClick={() => removeRecommendation(recommendation)}
+                    disabled={working}
+                    title="Supprimer ce programme"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </article>
+              );
+            })}
+            {!recommendations.length && (
+              <EmptyState icon={BrainCircuit} title="Aucun programme" text="Generez une recommandation pour demarrer." />
+            )}
+          </div>
+        </aside>
+
+        <main className="program-main">
+          {selectedRecommendation ? (
+            <>
+              <section className="program-overview">
+                <div className="program-overview-copy">
+                  {user.role !== "MEMBER" && selectedRecommendation.member && (
+                    <p className="eyebrow">{fullName(selectedRecommendation.member)}</p>
+                  )}
+                  <div className="program-title-row">
+                    <h3>{selectedRecommendation.goal}</h3>
+                    <StatusBadge status={selectedRecommendation.intensity} />
+                  </div>
+                  <p>{selectedRecommendation.summary}</p>
+                </div>
+                <div className="program-score-card">
+                  <BrainCircuit size={24} />
+                  <strong>{selectedRecommendation.weeklyFrequency}</strong>
+                  <span>seances / semaine</span>
+                </div>
+              </section>
+
+              <section className="program-meta-strip">
+                <span><CalendarDays size={16} /> {formatDate(selectedRecommendation.generatedAt)}</span>
+                {selectedPlan.focusTag && <span><Target size={16} /> {selectedPlan.focusTag}</span>}
+                {selectedPlan.nextReview && <span><RefreshCw size={16} /> {selectedPlan.nextReview}</span>}
+              </section>
+
+              <section className="program-session-board">
+                {selectedSessions.map((session, index) => (
+                  <article className={session.recovery ? "program-session recovery" : "program-session"} key={`${selectedRecommendation.id}-${session.day}-${index}`}>
+                    <div className="program-session-day">
+                      <span>{String(index + 1).padStart(2, "0")}</span>
+                      <strong>{session.day}</strong>
+                    </div>
+                    <div>
+                      <h4>{session.title}</h4>
+                      <b>{session.duration}</b>
+                      <p>{session.exercises?.join(" - ")}</p>
+                    </div>
+                  </article>
+                ))}
+              </section>
+
+              <div className="program-bottom-grid">
+                <section className="program-advice">
+                  <div className="program-section-head">
+                    <div>
+                      <p className="eyebrow">Conseils</p>
+                      <h3>Recuperation & nutrition</h3>
+                    </div>
+                    <HeartPulse size={21} />
+                  </div>
+                  {selectedPlan.nutrition && <p>{selectedPlan.nutrition}</p>}
+                  <div className="program-tip-list">
+                    {(selectedPlan.recovery || []).map((tip) => (
+                      <span key={tip}><CheckCircle2 size={15} /> {tip}</span>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="program-videos">
+                  <div className="program-section-head">
+                    <div>
+                      <p className="eyebrow">Supports</p>
+                      <h3>Videos recommandees</h3>
+                    </div>
+                    <Youtube size={21} />
+                  </div>
+                  <div className="program-video-list">
+                    {selectedVideos.slice(0, 4).map((video, index) => (
+                      <a href={video.url} key={`${selectedRecommendation.id}-video-${index}`} rel="noreferrer" target="_blank">
+                        <Youtube size={16} />
+                        <span>
+                          <strong>{video.title || video.query}</strong>
+                          <small>{video.reason || video.query}</small>
+                        </span>
+                      </a>
+                    ))}
+                    {!selectedVideos.length && <span>Aucune video associee.</span>}
+                  </div>
+                </section>
+              </div>
+            </>
+          ) : (
+            <EmptyState icon={BrainCircuit} title="Aucun programme selectionne" text="Generez un programme pour afficher le detail." />
+          )}
+        </main>
       </div>
     </div>
   );
@@ -2661,7 +3482,7 @@ function CountUp({ value, formatter = (number) => Math.round(number).toLocaleStr
 
 function Panel({ title, icon: Icon, children }) {
   return (
-    <section className="panel">
+    <section className="panel app-card">
       <div className="panel-title">
         <Icon size={18} />
         <h2>{title}</h2>
@@ -2686,7 +3507,7 @@ function DataTable({ headers, rows, empty }) {
   if (!rows.length) return <EmptyState icon={Activity} title={empty} />;
   return (
     <div className="table-wrap">
-      <table>
+      <table className="data-table">
         <thead>
           <tr>
             {headers.map((header) => (
@@ -2720,7 +3541,7 @@ function EmptyState({ icon: Icon, title, text }) {
 
 function TextField({ label, value, onChange, type = "text", required = false }) {
   return (
-    <label>
+    <label className="field">
       {label}
       <input type={type} value={value ?? ""} onChange={(event) => onChange(event.target.value)} required={required} />
     </label>
@@ -2729,7 +3550,7 @@ function TextField({ label, value, onChange, type = "text", required = false }) 
 
 function TextArea({ label, value, onChange }) {
   return (
-    <label className="full-span">
+    <label className="field full-span">
       {label}
       <textarea value={value ?? ""} onChange={(event) => onChange(event.target.value)} rows={3} />
     </label>
@@ -2742,7 +3563,7 @@ function SelectField({ label, value, onChange, options, required = false }) {
   );
 
   return (
-    <label>
+    <label className="field">
       {label}
       <select value={value ?? ""} onChange={(event) => onChange(event.target.value)} required={required}>
         <option value="">Choisir</option>

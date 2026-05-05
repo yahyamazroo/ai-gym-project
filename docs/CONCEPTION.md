@@ -14,7 +14,7 @@ GETFIT GYM centralise la gestion d'une salle de sport: membres, coachs, offres d
 
 ```text
 React/Vite               Express REST API                MySQL + Prisma Client
-client/  <----------->   server/src/routes/   <------->   gym_ai_pfa
+client/  <----------->   server/src/routes/   <------->   getfit_gym
 ```
 
 ## Modules

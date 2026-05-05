@@ -36,7 +36,7 @@ async function main() {
 
   await prisma.user.create({
     data: {
-      email: "admin@gym-ai.local",
+      email: "admin@getfit.local",
       passwordHash: adminHash,
       role: "ADMIN"
     }
@@ -44,7 +44,7 @@ async function main() {
 
   const coachUser = await prisma.user.create({
     data: {
-      email: "coach@gym-ai.local",
+      email: "coach@getfit.local",
       passwordHash: coachHash,
       role: "COACH"
     }
@@ -52,7 +52,7 @@ async function main() {
 
   const memberUser = await prisma.user.create({
     data: {
-      email: "member@gym-ai.local",
+      email: "member@getfit.local",
       passwordHash: memberHash,
       role: "MEMBER"
     }
@@ -64,7 +64,7 @@ async function main() {
         userId: coachUser.id,
         firstName: "Nadia",
         lastName: "Benali",
-        email: "coach@gym-ai.local",
+        email: "coach@getfit.local",
         phone: "0612345678",
         specialty: "Musculation & transformation physique",
         bio: "Coach principale specialisee en force, posture et suivi de progression."
@@ -74,7 +74,7 @@ async function main() {
       data: {
         firstName: "Youssef",
         lastName: "El Amrani",
-        email: "youssef.coach@gym-ai.local",
+        email: "youssef.coach@getfit.local",
         phone: "0698765432",
         specialty: "Cardio boxing",
         bio: "Encadre les cours collectifs intensifs et les circuits fonctionnels."
@@ -88,7 +88,7 @@ async function main() {
         userId: memberUser.id,
         firstName: "Sara",
         lastName: "Alaoui",
-        email: "member@gym-ai.local",
+        email: "member@getfit.local",
         phone: "0600112233",
         gender: "Femme",
         birthDate: new Date("2001-03-18"),

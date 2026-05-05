@@ -1,5 +1,5 @@
 {
-  "name": "gym-ai-pfa-server",
+  "name": "getfit-gym-server",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "db:create": "mysql -u root -e \"CREATE DATABASE IF NOT EXISTS gym_ai_pfa CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\"",
+    "db:create": "node prisma/createDatabase.js",
     "db:push": "prisma db push",
     "db:reset": "prisma db push --force-reset && npm run seed",
     "db:studio": "prisma studio",
@@ -22,6 +22,7 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.1",
+    "mysql2": "^3.22.3",
     "zod": "^4.1.12"
   },
   "devDependencies": {

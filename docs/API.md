@@ -6,6 +6,9 @@ Base locale: `http://localhost:4000/api`
 
 - `POST /auth/login`: connexion, retourne `token` et `user`.
 - `GET /auth/me`: utilisateur courant.
+- `POST /auth/forgot-password`: enregistre une demande de reinitialisation.
+- `POST /auth/reset-password`: reinitialise avec un jeton temporaire.
+- `PUT /auth/change-password`: change le mot de passe de l'utilisateur connecte.
 
 ## Dashboard
 
@@ -21,7 +24,7 @@ Base locale: `http://localhost:4000/api`
 - `POST /courses/:id/enroll`, `DELETE /courses/:id/enrollments/:memberId`
 - `GET /attendance`, `POST /attendance`, `DELETE /attendance/:id`
 - `GET /payments`, `POST /payments`, `PUT /payments/:id`, `DELETE /payments/:id`
-- `GET /recommendations`, `POST /recommendations/generate/:memberId`
+- `GET /recommendations`, `POST /recommendations/generate/:memberId`, `DELETE /recommendations/:id`
 
 ## Portails
 
@@ -32,7 +35,7 @@ Base locale: `http://localhost:4000/api`
 
 ```json
 {
-  "email": "admin@gym-ai.local",
+  "email": "admin@getfit.local",
   "password": "Admin123!"
 }
 ```

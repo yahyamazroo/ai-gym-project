@@ -36,7 +36,7 @@ npm --version
 Dans PowerShell:
 
 ```powershell
-cd C:\Users\PC\Desktop\pfa.2025.2026
+cd CHEMIN_DU_DOSSIER_DU_PROJET
 ```
 
 ### 3. Creer la base de donnees avec MySQL Workbench
@@ -47,7 +47,7 @@ cd C:\Users\PC\Desktop\pfa.2025.2026
 4. Executer cette commande:
 
 ```sql
-CREATE DATABASE gym_ai_pfa
+CREATE DATABASE getfit_gym
 CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 ```
@@ -55,7 +55,7 @@ COLLATE utf8mb4_unicode_ci;
 La base doit s'appeler exactement:
 
 ```text
-gym_ai_pfa
+getfit_gym
 ```
 
 ### 4. Verifier la configuration MySQL
@@ -69,8 +69,8 @@ server\.env
 Configuration par defaut:
 
 ```env
-DATABASE_URL="mysql://root:@localhost:3306/gym_ai_pfa"
-JWT_SECRET="pfa-gym-ai-local-secret"
+DATABASE_URL="mysql://root:@localhost:3306/getfit_gym"
+JWT_SECRET="getfit-local-secret"
 JWT_EXPIRES_IN="8h"
 PORT=4000
 CLIENT_URL="http://localhost:5173"
@@ -81,7 +81,7 @@ Si votre utilisateur MySQL `root` a un mot de passe, modifier la ligne `DATABASE
 Exemple:
 
 ```env
-DATABASE_URL="mysql://root:VOTRE_MOT_DE_PASSE@localhost:3306/gym_ai_pfa"
+DATABASE_URL="mysql://root:VOTRE_MOT_DE_PASSE@localhost:3306/getfit_gym"
 ```
 
 ### 5. Installer les dependances
@@ -131,9 +131,9 @@ http://localhost:5173
 
 | Role | Email | Mot de passe |
 | --- | --- | --- |
-| Administrateur | admin@gym-ai.local | Admin123! |
-| Coach | coach@gym-ai.local | Coach123! |
-| Membre | member@gym-ai.local | Member123! |
+| Administrateur | admin@getfit.local | Admin123! |
+| Coach | coach@getfit.local | Coach123! |
+| Membre | member@getfit.local | Member123! |
 
 ## Commandes utiles
 
@@ -179,12 +179,12 @@ Password: votre mot de passe MySQL
 
 Puis verifier que `server\.env` contient le bon mot de passe.
 
-### Erreur: Unknown database `gym_ai_pfa`
+### Erreur: Unknown database `getfit_gym`
 
 La base n'a pas ete creee. Retourner dans MySQL Workbench et executer:
 
 ```sql
-CREATE DATABASE gym_ai_pfa
+CREATE DATABASE getfit_gym
 CHARACTER SET utf8mb4
 COLLATE utf8mb4_unicode_ci;
 ```
@@ -221,14 +221,14 @@ Le projet utilise MySQL.
 Configuration par defaut dans `server/.env`:
 
 ```env
-DATABASE_URL="mysql://root:@localhost:3306/gym_ai_pfa"
+DATABASE_URL="mysql://root:@localhost:3306/getfit_gym"
 ```
 
 Avec XAMPP:
 
 1. Demarrer `Apache` et `MySQL` dans XAMPP.
 2. Ouvrir `http://localhost/phpmyadmin`.
-3. Creer une base nommee `gym_ai_pfa` avec l'encodage `utf8mb4_unicode_ci`.
+3. Creer une base nommee `getfit_gym` avec l'encodage `utf8mb4_unicode_ci`.
 4. Lancer:
 
 ```bash

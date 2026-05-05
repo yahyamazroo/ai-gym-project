@@ -1,8 +1,8 @@
 {
-  "name": "gym-ai-pfa",
+  "name": "getfit-gym",
   "version": "1.0.0",
   "private": true,
-  "description": "Application web de gestion de salle de sport avec recommandations d'entrainement par IA.",
+  "description": "Application web GETFIT GYM pour gerer une salle de sport avec recommandations d'entrainement par IA.",
   "workspaces": [
     "client",
     "server"

@@ -8,13 +8,13 @@
 4. Creer une base de donnees:
 
 ```sql
-CREATE DATABASE gym_ai_pfa CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE getfit_gym CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
 5. Verifier `server/.env`:
 
 ```env
-DATABASE_URL="mysql://root:@localhost:3306/gym_ai_pfa"
+DATABASE_URL="mysql://root:@localhost:3306/getfit_gym"
 ```
 
 6. Lancer le projet:
@@ -30,7 +30,7 @@ npm run dev
 Modifier l'URL:
 
 ```env
-DATABASE_URL="mysql://root:TON_MOT_DE_PASSE@localhost:3306/gym_ai_pfa"
+DATABASE_URL="mysql://root:TON_MOT_DE_PASSE@localhost:3306/getfit_gym"
 ```
 
 ## Si la commande mysql est disponible

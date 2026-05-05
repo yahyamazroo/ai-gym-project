@@ -42,10 +42,10 @@ router.get(
 
 router.post(
   "/",
-  requireRole("ADMIN", "COACH"),
+  requireRole("COACH"),
   asyncHandler(async (req, res) => {
     const payload = courseSchema.parse(req.body);
-    const coachId = req.user.role === "COACH" ? req.user.coachId : payload.coachId;
+    const coachId = req.user.coachId;
     if (!coachId) return res.status(400).json({ message: "Coach obligatoire." });
 
     const course = await prisma.course.create({
@@ -68,12 +68,12 @@ router.post(
 
 router.put(
   "/:id",
-  requireRole("ADMIN", "COACH"),
+  requireRole("COACH"),
   asyncHandler(async (req, res) => {
     const payload = courseSchema.partial().parse(req.body);
     const existing = await prisma.course.findUnique({ where: { id: Number(req.params.id) } });
     if (!existing) return res.status(404).json({ message: "Cours introuvable." });
-    if (req.user.role === "COACH" && existing.coachId !== req.user.coachId) {
+    if (existing.coachId !== req.user.coachId) {
       return res.status(403).json({ message: "Cours hors planning du coach." });
     }
 
@@ -87,8 +87,7 @@ router.put(
         endsAt: payload.endsAt === undefined ? undefined : toDate(payload.endsAt),
         capacity: payload.capacity,
         room: payload.room,
-        status: payload.status,
-        coachId: req.user.role === "ADMIN" ? payload.coachId : undefined
+        status: payload.status
       },
       include
     });
@@ -109,6 +108,12 @@ router.post(
     });
 
     if (!course) return res.status(404).json({ message: "Cours introuvable." });
+    if (req.user.role === "ADMIN") {
+      return res.status(403).json({ message: "Seul le coach gere les inscriptions aux cours." });
+    }
+    if (req.user.role === "COACH" && course.coachId !== req.user.coachId) {
+      return res.status(403).json({ message: "Cours hors planning du coach." });
+    }
     if (course.enrollments.length >= course.capacity) {
       return res.status(409).json({ message: "Capacite maximale atteinte." });
     }
@@ -129,6 +134,15 @@ router.delete(
       return res.status(403).json({ message: "Acces non autorise." });
     }
 
+    const course = await prisma.course.findUnique({ where: { id: courseId } });
+    if (!course) return res.status(404).json({ message: "Cours introuvable." });
+    if (req.user.role === "ADMIN") {
+      return res.status(403).json({ message: "Seul le coach gere les inscriptions aux cours." });
+    }
+    if (req.user.role === "COACH" && course.coachId !== req.user.coachId) {
+      return res.status(403).json({ message: "Cours hors planning du coach." });
+    }
+
     await prisma.enrollment.delete({
       where: { memberId_courseId: { memberId, courseId } }
     });
@@ -138,8 +152,14 @@ router.delete(
 
 router.delete(
   "/:id",
-  requireRole("ADMIN"),
+  requireRole("COACH"),
   asyncHandler(async (req, res) => {
+    const course = await prisma.course.findUnique({ where: { id: Number(req.params.id) } });
+    if (!course) return res.status(404).json({ message: "Cours introuvable." });
+    if (course.coachId !== req.user.coachId) {
+      return res.status(403).json({ message: "Cours hors planning du coach." });
+    }
+
     await prisma.course.delete({ where: { id: Number(req.params.id) } });
     res.status(204).end();
   })
